@@ -102,3 +102,103 @@ Run 3 discovered servers:
 192.168.53.2
 192.168.53.53
 ```
+
+## 2026-10-18T23:46:16+00:00
+
+- Source revision: `de81ff845dfb844899ea45941f596a673c818ae8`
+- Source/runner state: clean
+- Go: `go version go1.27.1 linux/amd64`
+- OS/architecture: `Linux-7.0.0-34-generic-x86_64-with-glibc2.43` / `x86_64`
+- CPU: Intel(R) Core(TM) i5-8400 CPU @ 2.80GHz (6 logical CPUs)
+- Command: `find-nameservers 192.168.0.0/24 192.168.53.0/24`
+- Settings: hostname `www.example.com`, 3 attempts per address, minimum retry gap 50ms, batch size 1024, reply grace 2s after final send; 512 addresses; three sequential runs; build time excluded.
+
+| Run | Elapsed (s) | Addresses/s | DNS servers |
+| --- | ---: | ---: | ---: |
+| 1 | 2.120 | 241.56 | 1 |
+| 2 | 2.129 | 240.44 | 2 |
+| 3 | 2.133 | 240.04 | 2 |
+
+Median elapsed: **2.129s**; throughput at median: **240.44 addresses/s**.
+
+Discovery sets: **differ across runs; compare coverage before timing.**
+
+Run 1 discovered servers:
+
+```text
+192.168.0.1
+```
+
+Run 2 discovered servers:
+
+```text
+192.168.0.1
+192.168.53.53
+```
+
+Run 3 discovered servers:
+
+```text
+192.168.0.1
+192.168.53.53
+```
+
+
+### Same-session control (previous worker scanner)
+
+One additional control scan of source `2cc291a2345d08c12d515d55dd8d9a6940af1b66` on the same machine, after the experimental measurements, took **32.033s** and found 4 servers. This is a single control measurement, not a three-run median. Build time was excluded; command and default worker settings match the historical baseline.
+
+```text
+192.168.0.1
+192.168.53.1
+192.168.53.2
+192.168.53.53
+```
+
+## 2026-10-18T23:47:27+00:00
+
+- Source revision: `de81ff845dfb844899ea45941f596a673c818ae8`
+- Source/runner state: clean
+- Go: `go version go1.27.1 linux/amd64`
+- OS/architecture: `Linux-7.0.0-34-generic-x86_64-with-glibc2.43` / `x86_64`
+- CPU: Intel(R) Core(TM) i5-8400 CPU @ 2.80GHz (6 logical CPUs)
+- Command: `find-nameservers 192.168.0.0/24 192.168.53.0/24`
+- Settings: hostname `www.example.com`, 3 attempts per address, minimum retry gap 50ms, batch size 1024, reply grace 2s after final send; 512 addresses; three sequential runs; build time excluded.
+
+| Run | Elapsed (s) | Addresses/s | DNS servers |
+| --- | ---: | ---: | ---: |
+| 1 | 2.120 | 241.56 | 3 |
+| 2 | 2.119 | 241.67 | 3 |
+| 3 | 2.115 | 242.13 | 3 |
+
+Median elapsed: **2.119s**; throughput at median: **241.67 addresses/s**.
+
+Discovery sets: identical across all runs.
+
+Run 1 discovered servers:
+
+```text
+192.168.0.1
+192.168.53.1
+192.168.53.53
+```
+
+Run 2 discovered servers:
+
+```text
+192.168.0.1
+192.168.53.1
+192.168.53.53
+```
+
+Run 3 discovered servers:
+
+```text
+192.168.0.1
+192.168.53.1
+192.168.53.53
+```
+
+### Experimental comparison
+
+The asynchronous experiment's first three-run median was 2.129s with only 1–2 discoveries. The previous worker scanner then found all four known servers in a same-session 32.033s control scan. A repeated asynchronous measurement had a 2.119s median (241.67 addresses/s), about 15.1 times faster than the prior 32.046s median, but found only three servers in every run, consistently missing `192.168.53.2`. Keep this as an experiment: elapsed time improved, but equivalent discovery coverage has not been achieved. The cause of missed replies is unconfirmed; changing network/neighbor state and burst loss remain possibilities.
