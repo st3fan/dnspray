@@ -103,4 +103,6 @@ if __name__ == "__main__":
     try:
         main()
     except (OSError, ValueError, subprocess.SubprocessError) as error:
+        if isinstance(error, subprocess.CalledProcessError) and error.stderr:
+            print(error.stderr, file=sys.stderr, end="")
         sys.exit(f"Benchmark failed; no results appended: {error}")

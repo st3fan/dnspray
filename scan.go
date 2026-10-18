@@ -53,7 +53,16 @@ func scan(ctx context.Context, prefixes []netip.Prefix, question *dns.Msg, timeo
 		if err != nil {
 			return fmt.Errorf("listen %s: %w", network, err)
 		}
-		s.sockets[v6] = conn.(*net.UDPConn)
+		udp := conn.(*net.UDPConn)
+		s.sockets[v6] = udp
+		// Burst probes to unresolved neighbors remain queued in the kernel.
+		// Give sending and receiving room without changing host-wide settings.
+		if err := udp.SetWriteBuffer(4 << 20); err != nil {
+			return fmt.Errorf("set UDP send buffer: %w", err)
+		}
+		if err := udp.SetReadBuffer(4 << 20); err != nil {
+			return fmt.Errorf("set UDP receive buffer: %w", err)
+		}
 	}
 	return s.run(ctx, prefixes, timeout)
 }
