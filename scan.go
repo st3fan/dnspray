@@ -16,7 +16,6 @@ import (
 	"github.com/miekg/dns"
 )
 
-const retryGap = 50 * time.Millisecond
 const batchSize = 1024
 
 // A frontier records how far sending has progressed without storing every target.
@@ -25,7 +24,27 @@ type frontier struct {
 	last   netip.Addr
 }
 
+type scanOptions struct {
+	timeout  time.Duration
+	rate     int
+	retryGap time.Duration
+}
+
+func (o scanOptions) validate() error {
+	if o.timeout <= 0 {
+		return fmt.Errorf("-t must be positive")
+	}
+	if o.rate < 0 || o.rate > int(time.Second) {
+		return fmt.Errorf("-rate must be between 0 and 1000000000 packets/second")
+	}
+	if o.retryGap <= 0 {
+		return fmt.Errorf("-retry-gap must be positive")
+	}
+	return nil
+}
+
 type scanner struct {
+	opts     scanOptions
 	sockets  map[bool]*net.UDPConn // true for IPv6
 	question *dns.Msg
 	key      [32]byte
@@ -36,8 +55,11 @@ type scanner struct {
 	port     uint16
 }
 
-func scan(ctx context.Context, prefixes []netip.Prefix, question *dns.Msg, timeout time.Duration, output io.Writer) error {
-	s := &scanner{sockets: make(map[bool]*net.UDPConn), question: question,
+func scan(ctx context.Context, prefixes []netip.Prefix, question *dns.Msg, opts scanOptions, output io.Writer) error {
+	if err := opts.validate(); err != nil {
+		return err
+	}
+	s := &scanner{opts: opts, sockets: make(map[bool]*net.UDPConn), question: question,
 		found: make(map[netip.Addr]bool), output: output, port: 53}
 	defer s.close()
 	for _, prefix := range prefixes {
@@ -64,7 +86,7 @@ func scan(ctx context.Context, prefixes []netip.Prefix, question *dns.Msg, timeo
 			return fmt.Errorf("set UDP receive buffer: %w", err)
 		}
 	}
-	return s.run(ctx, prefixes, timeout)
+	return s.run(ctx, prefixes, opts.timeout)
 }
 
 func (s *scanner) close() {
@@ -138,14 +160,22 @@ type attempt struct {
 
 func (s *scanner) send(ctx context.Context, prefixes []netip.Prefix) error {
 	batch := make([]attempt, 0, batchSize)
+	var nextSend time.Time
+	var interval time.Duration
+	if s.opts.rate > 0 {
+		interval = time.Second / time.Duration(s.opts.rate)
+	}
 	flush := func() error {
 		for round := 0; round < 3; round++ {
 			for i := range batch {
 				target := &batch[i]
 				if round > 0 {
-					if err := wait(ctx, time.Until(target.last.Add(retryGap))); err != nil {
+					if err := wait(ctx, time.Until(target.last.Add(s.opts.retryGap))); err != nil {
 						return err
 					}
+				}
+				if err := wait(ctx, time.Until(nextSend)); err != nil {
+					return err
 				}
 				if err := ctx.Err(); err != nil {
 					return err
@@ -171,6 +201,11 @@ func (s *scanner) send(ctx context.Context, prefixes []netip.Prefix) error {
 					return fmt.Errorf("send to %s: %w", target.addr, err)
 				}
 				target.last = time.Now()
+				// Schedule from the actual send, so delays never accumulate credit
+				// for a catch-up burst. This schedule spans retries and batches.
+				if interval > 0 {
+					nextSend = target.last.Add(interval)
+				}
 			}
 		}
 		batch = batch[:0]

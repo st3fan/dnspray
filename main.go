@@ -18,14 +18,21 @@ import (
 func main() {
 	host := flag.String("h", "www.example.com", "hostname to query")
 	timeout := flag.Float64("t", 2, "seconds to listen after the final request")
+	rate := flag.Int("rate", 500, "maximum packets per second (0 disables pacing)")
+	gap := flag.Duration("retry-gap", 500*time.Millisecond, "minimum delay between attempts to the same address")
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [-h hostname] [-t seconds] CIDR-or-IP [CIDR-or-IP ...]\n", os.Args[0])
+		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [-h hostname] [-t seconds] [-rate packets/s] [-retry-gap duration] CIDR-or-IP [CIDR-or-IP ...]\n", os.Args[0])
 		flag.PrintDefaults()
 	}
 	flag.Parse()
 
 	if math.IsNaN(*timeout) || math.IsInf(*timeout, 0) || *timeout <= 0 || *timeout >= float64(math.MaxInt64)/float64(time.Second) || time.Duration(*timeout*float64(time.Second)) <= 0 {
 		fmt.Fprintln(os.Stderr, "-t must be a positive, representable number of seconds")
+		os.Exit(2)
+	}
+	opts := scanOptions{timeout: time.Duration(*timeout * float64(time.Second)), rate: *rate, retryGap: *gap}
+	if err := opts.validate(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
 	if flag.NArg() == 0 {
@@ -46,7 +53,7 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	if err := scan(ctx, contained, question, time.Duration(*timeout*float64(time.Second)), os.Stdout); err != nil && !errors.Is(err, context.Canceled) {
+	if err := scan(ctx, contained, question, opts, os.Stdout); err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

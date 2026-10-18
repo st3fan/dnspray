@@ -14,6 +14,8 @@ import (
 	"github.com/miekg/dns"
 )
 
+const retryGap = 50 * time.Millisecond
+
 func TestValidResponse(t *testing.T) {
 	query, _ := makeQuestion("www.example.com")
 	for _, tc := range []struct {
@@ -65,7 +67,7 @@ func testScanner(t *testing.T, v6 bool, output io.Writer) (*scanner, *net.UDPCon
 	t.Cleanup(func() { server.Close(); conn.Close() })
 	question, _ := makeQuestion("www.example.com")
 	addr := netip.MustParseAddr(host)
-	return &scanner{sockets: map[bool]*net.UDPConn{v6: conn}, question: question, found: make(map[netip.Addr]bool), output: output, port: server.LocalAddr().(*net.UDPAddr).AddrPort().Port()}, server, netip.PrefixFrom(addr, addr.BitLen())
+	return &scanner{opts: scanOptions{retryGap: retryGap}, sockets: map[bool]*net.UDPConn{v6: conn}, question: question, found: make(map[netip.Addr]bool), output: output, port: server.LocalAddr().(*net.UDPAddr).AddrPort().Port()}, server, netip.PrefixFrom(addr, addr.BitLen())
 }
 
 type timedWriter struct {
@@ -279,5 +281,84 @@ func TestResultWriteError(t *testing.T) {
 	q.Id = s.id(prefix.Addr())
 	if err := s.accept(netip.AddrPortFrom(prefix.Addr(), s.port), new(dns.Msg).SetReply(q)); !errors.Is(err, io.ErrClosedPipe) {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestPacingAcrossTargetsAndRetries(t *testing.T) {
+	s, server, prefix := testScanner(t, false, io.Discard)
+	s.opts.rate = 40 // 25ms between every packet, across both prefix entries.
+	s.opts.retryGap = time.Millisecond
+	received := make(chan time.Time, 6)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for range 6 {
+			if _, _, err := server.ReadFromUDPAddrPort(make([]byte, 4096)); err != nil {
+				return
+			}
+			received <- time.Now()
+		}
+	}()
+	t.Cleanup(func() { server.Close(); <-done })
+	if err := s.run(context.Background(), []netip.Prefix{prefix, prefix}, 10*time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	var previous time.Time
+	for range 6 {
+		select {
+		case now := <-received:
+			if !previous.IsZero() && now.Sub(previous) < 20*time.Millisecond {
+				t.Fatal("packets exceeded configured rate")
+			}
+			previous = now
+		default:
+			t.Fatal("did not receive all six attempts")
+		}
+	}
+}
+
+func TestCancellationWhilePacing(t *testing.T) {
+	s, server, prefix := testScanner(t, false, io.Discard)
+	s.opts.rate = 1
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- s.run(ctx, []netip.Prefix{prefix}, time.Second) }()
+	server.SetReadDeadline(time.Now().Add(time.Second))
+	if _, _, err := server.ReadFromUDPAddrPort(make([]byte, 4096)); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("got %v", err)
+		}
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("pacing did not cancel promptly")
+	}
+}
+
+func TestScanOptions(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		rate         int
+		gap, timeout time.Duration
+		valid        bool
+	}{
+		{"defaults", 500, 500 * time.Millisecond, 2 * time.Second, true},
+		{"unpaced", 0, time.Second, 5 * time.Second, true},
+		{"negative rate", -1, time.Second, time.Second, false},
+		{"unrepresentable interval", int(time.Second) + 1, time.Second, time.Second, false},
+		{"zero retry gap", 500, 0, time.Second, false},
+		{"negative retry gap", 500, -time.Second, time.Second, false},
+		{"zero timeout", 500, time.Second, 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := (scanOptions{rate: tc.rate, retryGap: tc.gap, timeout: tc.timeout}).validate()
+			if (err == nil) != tc.valid {
+				t.Fatalf("validation error %v, valid=%v", err, tc.valid)
+			}
+		})
 	}
 }
