@@ -10,6 +10,7 @@ The tool is written in Go.
 2. Implement the reviewed plan in a pull request for simple work.
 3. For complicated work, use a stack of pull requests. Split the work into focused, reviewable layers, with foundational changes below the changes that depend on them.
 4. Link the pull request or stack to the planning issue and explain how the changes were validated.
+5. When the user asks to merge a pull request, treat the work as complete. After merging, switch back to the repository's default branch and update it from the remote so the next task starts there. Preserve any unrelated local changes.
 
 Use the repository's [gh-stack skill](.agents/skills/gh-stack/SKILL.md) to manage stacked pull requests. Read and follow the skill before creating or modifying a stack, and create the stack before implementing its layers.
 

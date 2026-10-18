@@ -45,7 +45,7 @@ def main():
         f"- OS/architecture: `{platform.platform()}` / `{platform.machine()}`",
         f"- CPU: {cpu_model()} ({os.cpu_count()} logical CPUs)",
         f"- Command: `{' '.join(COMMAND)}`",
-        "- Settings: hostname `www.example.com`, concurrency 32, timeout 2s; "
+        "- Settings: hostname `www.example.com`, 3 attempts per address, minimum retry gap 50ms, batch size 1024, reply grace 2s after final send; "
         "512 addresses; three sequential runs; build time excluded.",
     ]
     if dirty:

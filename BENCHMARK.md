@@ -2,7 +2,7 @@
 
 Run `python3 scripts/benchmark.py` from a machine connected to the homelab before requesting review of every PR. Requires Python 3, Go, and Git. The script builds the current checkout once into a temporary directory, then times three sequential scans of `192.168.0.0/24` and `192.168.53.0/24` (512 addresses). The user has authorized these scans. This is a manual per-PR check; public GitHub-hosted runners cannot reach the homelab.
 
-The fixed command is `find-nameservers 192.168.0.0/24 192.168.53.0/24`, using the default hostname (`www.example.com`), concurrency (32), and query timeout (2 seconds). Build time is excluded. The first scan is included; no separate warm-up is performed. Each scan has a 120-second runner limit to fail visibly if it hangs.
+The fixed command is `find-nameservers 192.168.0.0/24 192.168.53.0/24`, using the default hostname (`www.example.com`), three attempts per address, at least 50ms between attempts, batches of up to 1,024 addresses, and a two-second reply grace period after the final send. Earlier records describe the previous worker-based scanner and retain its settings. Build time is excluded. The first scan is included; no separate warm-up is performed. Each scan has a 120-second runner limit to fail visibly if it hangs.
 
 Commit source changes before measuring, then commit the appended results separately. Each entry identifies the source commit tested, rather than the later commit containing the results. The script flags changes to Go sources, module files, or the runner. Include `BENCHMARK.md` in the PR and mention the median and any discovery changes in its description. Keep previous entries.
 

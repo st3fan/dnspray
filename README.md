@@ -15,9 +15,13 @@ The `find-nameservers` executable is installed in `GOBIN`, or in `$(go env GOPAT
 ## Usage
 
 ```sh
-find-nameservers -h example.org -c 64 192.0.2.0/24 2001:db8::1
+find-nameservers -h example.org -t 2 192.0.2.0/24 2001:db8::1
 ```
 
-`-h` defaults to `www.example.com`; `-c` defaults to 32 concurrent queries. The tool sends an A query and waits up to two seconds per address. Any valid DNS response for that query counts, including `NXDOMAIN` or `REFUSED`.
+`-h` defaults to `www.example.com`. The scanner sends three UDP A queries per address with at least 50ms between attempts, using batches of up to 1,024 addresses. Replies are collected concurrently on one shared socket per address family. Each responding address is printed once. Any valid matching DNS response counts, including `NXDOMAIN` or `REFUSED`.
+
+`-t` is a positive number of seconds (default 2) to keep listening **after the final request is sent**. Listening also runs throughout sending. Total runtime includes sending, retry delays, and this final grace period. Ctrl+C stops sending and listening. The former `-c` worker-concurrency flag has been removed for this experiment.
+
+Sending and retry storage are bounded; remembered discoveries grow with the number of responding addresses. Overlapping prefixes may cause additional probes, but duplicate replies produce only one output line. Send, receive, and output errors fail the scan visibly. High-speed UDP probing can lose packets, so compare discovered servers as well as elapsed time.
 
 The implementation uses [`github.com/miekg/dns`](https://github.com/miekg/dns) to construct queries, exchange DNS messages over UDP, and parse responses.
