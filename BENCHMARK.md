@@ -55,3 +55,50 @@ Run 3 discovered servers:
 192.168.53.2
 192.168.53.53
 ```
+
+## 2026-10-18T23:26:34+00:00
+
+- Source revision: `0a3fdc0ef540fa9d47b3eb3c031b6ea43c51d792`
+- Source/runner state: clean
+- Go: `go version go1.27.1 linux/amd64`
+- OS/architecture: `Linux-7.0.0-34-generic-x86_64-with-glibc2.43` / `x86_64`
+- CPU: Intel(R) Core(TM) i5-8400 CPU @ 2.80GHz (6 logical CPUs)
+- Command: `find-nameservers 192.168.0.0/24 192.168.53.0/24`
+- Settings: hostname `www.example.com`, concurrency 32, timeout 2s; 512 addresses; three sequential runs; build time excluded.
+
+| Run | Elapsed (s) | Addresses/s | DNS servers |
+| --- | ---: | ---: | ---: |
+| 1 | 32.039 | 15.98 | 4 |
+| 2 | 32.046 | 15.98 | 4 |
+| 3 | 32.048 | 15.98 | 4 |
+
+Median elapsed: **32.046s**; throughput at median: **15.98 addresses/s**.
+
+Discovery sets: identical across all runs.
+
+Run 1 discovered servers:
+
+```text
+192.168.0.1
+192.168.53.1
+192.168.53.2
+192.168.53.53
+```
+
+Run 2 discovered servers:
+
+```text
+192.168.0.1
+192.168.53.1
+192.168.53.2
+192.168.53.53
+```
+
+Run 3 discovered servers:
+
+```text
+192.168.0.1
+192.168.53.1
+192.168.53.2
+192.168.53.53
+```
