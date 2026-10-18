@@ -35,8 +35,8 @@ def cpu_model():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--rate", type=int, default=500, help="packets/second; 0 disables pacing")
-    parser.add_argument("--retry-gap", default="500ms", help="Go duration, e.g. 500ms or 1s")
+    parser.add_argument("--rate", type=int, default=100, help="packets/second; 0 disables pacing")
+    parser.add_argument("--retry-gap", default="1s", help="Go duration, e.g. 500ms or 1s")
     parser.add_argument("--timeout", type=float, default=2, help="seconds to listen after final send")
     args = parser.parse_args()
     flags = ("-rate", str(args.rate), "-retry-gap", args.retry_gap, "-t", str(args.timeout))

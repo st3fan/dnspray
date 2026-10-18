@@ -346,7 +346,7 @@ func TestScanOptions(t *testing.T) {
 		gap, timeout time.Duration
 		valid        bool
 	}{
-		{"defaults", 500, 500 * time.Millisecond, 2 * time.Second, true},
+		{"defaults", defaultRate, defaultRetryGap, 2 * time.Second, true},
 		{"unpaced", 0, time.Second, 5 * time.Second, true},
 		{"negative rate", -1, time.Second, time.Second, false},
 		{"unrepresentable interval", int(time.Second) + 1, time.Second, time.Second, false},

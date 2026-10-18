@@ -18,8 +18,8 @@ import (
 func main() {
 	host := flag.String("h", "www.example.com", "hostname to query")
 	timeout := flag.Float64("t", 2, "seconds to listen after the final request")
-	rate := flag.Int("rate", 500, "maximum packets per second (0 disables pacing)")
-	gap := flag.Duration("retry-gap", 500*time.Millisecond, "minimum delay between attempts to the same address")
+	rate := flag.Int("rate", defaultRate, "maximum packets per second (0 disables pacing)")
+	gap := flag.Duration("retry-gap", defaultRetryGap, "minimum delay between attempts to the same address")
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [-h hostname] [-t seconds] [-rate packets/s] [-retry-gap duration] CIDR-or-IP [CIDR-or-IP ...]\n", os.Args[0])
 		flag.PrintDefaults()
