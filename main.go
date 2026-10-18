@@ -1,10 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/binary"
 	"errors"
 	"flag"
 	"fmt"
@@ -15,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/miekg/dns"
 )
 
 const queryTimeout = 2 * time.Second
@@ -69,17 +68,13 @@ func parsePrefixes(args []string) ([]netip.Prefix, error) {
 	return prefixes, nil
 }
 
-// makeQuestion builds the fixed part of an IN A query. The two-byte ID is
-// filled in separately for each request.
-func makeQuestion(host string) ([]byte, error) {
+// makeQuestion validates the hostname and builds an IN A query.
+func makeQuestion(host string) (*dns.Msg, error) {
 	host = strings.TrimSuffix(host, ".")
 	if host == "" || len(host) > 253 {
 		return nil, errors.New("hostname must be between 1 and 253 ASCII characters")
 	}
 
-	q := make([]byte, 12, 12+len(host)+6)
-	q[2] = 0x01 // Recursion desired.
-	q[5] = 0x01 // One question.
 	for _, label := range strings.Split(host, ".") {
 		if len(label) == 0 || len(label) > 63 {
 			return nil, fmt.Errorf("invalid DNS label in hostname %q", host)
@@ -90,14 +85,11 @@ func makeQuestion(host string) ([]byte, error) {
 				return nil, fmt.Errorf("invalid character in hostname %q", host)
 			}
 		}
-		q = append(q, byte(len(label)))
-		q = append(q, label...)
 	}
-	q = append(q, 0, 0, 1, 0, 1) // Root label, type A, class IN.
-	return q, nil
+	return new(dns.Msg).SetQuestion(dns.Fqdn(host), dns.TypeA), nil
 }
 
-func scan(ctx context.Context, prefixes []netip.Prefix, question []byte, concurrency int) {
+func scan(ctx context.Context, prefixes []netip.Prefix, question *dns.Msg, concurrency int) {
 	jobs := make(chan netip.Addr, concurrency)
 	results := make(chan netip.Addr, concurrency)
 	var workers sync.WaitGroup
@@ -139,43 +131,32 @@ func scan(ctx context.Context, prefixes []netip.Prefix, question []byte, concurr
 
 // probe reports a DNS server when it returns a response for our exact question.
 // Any DNS response code counts, including NXDOMAIN and REFUSED.
-func probe(ctx context.Context, addr netip.Addr, port string, question []byte) bool {
+func probe(ctx context.Context, addr netip.Addr, port string, question *dns.Msg) bool {
 	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
 	defer cancel()
 
-	conn, err := (&net.Dialer{}).DialContext(ctx, "udp", net.JoinHostPort(addr.String(), port))
+	client := &dns.Client{Net: "udp", Timeout: queryTimeout, UDPSize: 4096}
+	conn, err := client.DialContext(ctx, net.JoinHostPort(addr.String(), port))
 	if err != nil {
 		return false
 	}
 	defer conn.Close()
-	deadline, _ := ctx.Deadline()
-	if err := conn.SetDeadline(deadline); err != nil {
-		return false
-	}
+	// ExchangeWithConnContext applies deadlines but does not interrupt reads
+	// when the context is canceled before its deadline.
+	stop := context.AfterFunc(ctx, func() { conn.Close() })
+	defer stop()
 
-	query := bytes.Clone(question)
-	if _, err := rand.Read(query[:2]); err != nil {
-		return false
-	}
-	if _, err := conn.Write(query); err != nil {
-		return false
-	}
-
-	response := make([]byte, 4096)
-	n, err := conn.Read(response)
-	if err != nil || n < len(query) {
-		return false
-	}
-	return validResponse(query, response[:n])
+	query := question.Copy()
+	query.Id = dns.Id()
+	response, _, err := client.ExchangeWithConnContext(ctx, query, conn)
+	return err == nil && validResponse(query, response)
 }
 
-func validResponse(query, response []byte) bool {
-	if len(query) < 12 || len(response) < len(query) {
+func validResponse(query, response *dns.Msg) bool {
+	if query == nil || response == nil || len(query.Question) != 1 || len(response.Question) != 1 {
 		return false
 	}
-	return binary.BigEndian.Uint16(response[:2]) == binary.BigEndian.Uint16(query[:2]) &&
-		response[2]&0x80 != 0 && // Response bit.
-		response[2]&0x78 == 0 && // Standard query opcode.
-		binary.BigEndian.Uint16(response[4:6]) == 1 &&
-		bytes.Equal(response[12:len(query)], query[12:])
+	return response.Id == query.Id && response.Response &&
+		response.Opcode == dns.OpcodeQuery &&
+		response.Question[0] == query.Question[0]
 }
