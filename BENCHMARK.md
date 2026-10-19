@@ -548,3 +548,141 @@ Diagnostics: a scoped tcpdump capture was attempted, but this environment lacks 
 Once tcpdump was available, a reproduced miss showed three queries outbound at approximately 5ms, 59ms, and 110ms after startup but no matching reply in the capture. Later successful replies took roughly 1–1.5ms. Three further unrestricted scans captured DNS across both authorized prefixes; every known server with a captured matching reply was reported. Both capture sessions reported zero kernel capture-buffer drops, and the UDP receive-buffer error counter was zero. These are diagnostic observations, not additional standardized benchmark sets. Raw traffic captures remain outside the repository for separate host-to-host transfer.
 
 The user clarified that the two individual DNS server addresses are OpenBSD/Unbound servers and the third is their shared CARP address; all are expected to respond. The user also reports that this host's router intercepts external DNS. External scans from this host would therefore be misleading. Move routed testing to a host with direct, non-intercepted internet access and a user-selected remote test scope. Retain these local results with their topology and environment caveats; they do not establish optimal remote-scanning defaults.
+
+## Routed default validation — 2026-10-19T00:36:20+00:00
+
+- Source revision: `812f1c75ed47af9d1ce3f2d156a523d60d6b54a3`
+- Source/runner state: committed scanner; temporary measurement harness outside Git
+- Environment: `Linux-7.0.0-38-generic-x86_64-with-glibc2.43` / `x86_64`
+- Go: `go version go1.27.1 linux/amd64`
+- CPU: Intel(R) N150
+- Network: migrated host with non-intercepted routed access, as reported by user; link speed not independently measured.
+- Command: `find-nameservers 216.40.47.0/24 64.98.148.0/24`
+- Defaults: unpaced sending, 50ms minimum retry gap, three attempts, 2s final grace; 512 addresses. Three sequential runs; build excluded.
+
+| Run | Elapsed (s) | DNS addresses |
+| --- | ---: | ---: |
+| 1 | 2.109 | 34 |
+| 2 | 2.110 | 34 |
+| 3 | 2.111 | 34 |
+
+Median elapsed: **2.110s**. Each run matched the previous paced 34-address discovery set: True. Previous same-host 100pps/1s/2s median: 18.017s. This comparison does not establish complete discovery or performance on other networks.
+
+Run 1 discovered addresses:
+
+```text
+64.98.148.11
+64.98.148.12
+64.98.148.13
+64.98.148.14
+64.98.148.16
+64.98.148.17
+64.98.148.18
+64.98.148.19
+64.98.148.20
+64.98.148.121
+64.98.148.122
+64.98.148.123
+64.98.148.137
+64.98.148.138
+64.98.148.139
+64.98.148.145
+64.98.148.146
+64.98.148.147
+64.98.148.153
+64.98.148.161
+216.40.47.18
+216.40.47.19
+216.40.47.26
+216.40.47.80
+216.40.47.90
+216.40.47.201
+216.40.47.202
+216.40.47.209
+216.40.47.210
+216.40.47.225
+216.40.47.233
+216.40.47.234
+216.40.47.235
+216.40.47.236
+```
+
+Run 2 discovered addresses:
+
+```text
+64.98.148.11
+64.98.148.12
+64.98.148.13
+64.98.148.14
+64.98.148.16
+64.98.148.17
+64.98.148.18
+64.98.148.19
+64.98.148.20
+64.98.148.121
+64.98.148.122
+64.98.148.123
+64.98.148.137
+64.98.148.138
+64.98.148.139
+64.98.148.145
+64.98.148.146
+64.98.148.147
+64.98.148.153
+64.98.148.161
+216.40.47.18
+216.40.47.19
+216.40.47.26
+216.40.47.80
+216.40.47.90
+216.40.47.201
+216.40.47.202
+216.40.47.209
+216.40.47.210
+216.40.47.225
+216.40.47.233
+216.40.47.234
+216.40.47.235
+216.40.47.236
+```
+
+Run 3 discovered addresses:
+
+```text
+64.98.148.11
+64.98.148.12
+64.98.148.13
+64.98.148.14
+64.98.148.16
+64.98.148.17
+64.98.148.18
+64.98.148.19
+64.98.148.20
+64.98.148.121
+64.98.148.122
+64.98.148.123
+64.98.148.137
+64.98.148.138
+64.98.148.139
+64.98.148.145
+64.98.148.146
+64.98.148.147
+64.98.148.153
+64.98.148.161
+216.40.47.18
+216.40.47.19
+216.40.47.26
+216.40.47.80
+216.40.47.90
+216.40.47.201
+216.40.47.202
+216.40.47.209
+216.40.47.210
+216.40.47.225
+216.40.47.233
+216.40.47.234
+216.40.47.235
+216.40.47.236
+```
+
+Homelab validation limitation: this migrated host has no interface or route into the homelab; route inspection sends `192.168.53.1` through the public PPP default gateway. The fixed homelab benchmark was not run here. No failed connectivity or empty discovery is reported as a homelab baseline. The historical homelab records above are retained.
