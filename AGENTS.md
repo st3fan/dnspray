@@ -16,11 +16,11 @@ Use the repository's [gh-stack skill](.agents/skills/gh-stack/SKILL.md) to manag
 
 # Performance benchmarks
 
-Run `python3 scripts/benchmark.py` from the homelab before requesting review of every pull request and commit its appended results in `BENCHMARK.md`, including the tested revision, environment, command, elapsed time, and discovered DNS servers so results can be compared across changes.
+Run `python3 scripts/benchmark.py` from the homelab before requesting review of every pull request. Record the tested revision, environment, command, elapsed time, and discovered DNS servers in the local, ignored `BENCHMARK.md` so results can be compared across changes.
 
-The user authorizes running `find-nameservers 192.168.0.0/24 192.168.53.0/24` for this benchmark. Development takes place in the `192.168.0.0/16` homelab; the benchmark scans the two specified `/24` prefixes.
+The user authorizes running `find-nameservers 192.168.0.0/24 192.168.53.0/24` for this benchmark. The runner remains scoped to those two homelab prefixes. Obtain user authorization before scanning any other targets.
 
-Commit source changes before measuring, then commit the benchmark results separately. Keep historical entries. Include the median runtime and any discovery differences in the PR description. If homelab access is unavailable, document that limitation in `BENCHMARK.md` and the PR; do not report failed connectivity as a performance baseline.
+Keep benchmark records and test targets private. Never commit benchmark results or publish target prefixes, discovered addresses, measurements, or diagnostic captures in issues, PR descriptions, or other public project content. `BENCHMARK.md` (and alternate spelling `BENCHMARKS.md`) must remain ignored and untracked. Preserve historical entries locally. Commit source changes before measuring; no results commit is needed. Public PR descriptions may state that validation passed or that homelab access was unavailable, without publishing measurements or targets. If homelab access is unavailable, record that limitation locally; do not treat failed connectivity as a performance baseline.
 
 # Host migration handoff (2026-10-19)
 
@@ -32,8 +32,8 @@ The homelab DNS addresses `192.168.53.1` and `192.168.53.2` are two OpenBSD serv
 
 Current implementation: shared UDP sockets per address family; separate receivers; three attempts per address; batches of up to 1,024 targets; `-rate 100` packets/second globally, `-retry-gap 1s`, and `-t 2` seconds of listening after the final send. `-rate 0` disables pacing; `-c` was retired. miekg/dns handles DNS messages. Replies are validated against sent targets, address-scoped IDs, port, opcode, flags, and question, then deduplicated.
 
-See `BENCHMARK.md` for measurements and diagnostics. Previous worker median: 32.046s. Unrestricted bursts: about 2.12s with variable discovery. Final 100pps profile: 18.345s median and all four known servers in six measured runs. These results do not establish the best remote-scanning defaults. Tests, race detection, vet, and whitespace checks passed on the implementation.
+See the local, ignored `BENCHMARK.md` for private measurements and diagnostics. Homelab results do not establish the best remote-scanning defaults. Tests, race detection, vet, and whitespace checks passed on the implementation.
 
-A subsequent capture reproduced a miss: three queries to the missing server appeared outbound but no matching reply appeared in the capture. Later successful replies took roughly 1–1.5ms. In three additional full-prefix captures, every known server with a captured matching reply was reported. Capture-buffer drops and UDP receive-buffer errors were zero. The precise network/server-side loss mechanism remains unconfirmed; server-side capture would narrow it down. Raw captures stay outside Git and were archived locally on the old host at `/tmp/find-nameservers-captures-2026-10-19.tar.gz`; arrange a separate host-to-host transfer if needed.
+A subsequent capture reproduced a miss: three queries to the missing server appeared outbound but no matching reply appeared in the capture. In three additional full-prefix captures, every known server with a captured matching reply was reported. Capture-buffer drops and UDP receive-buffer errors were zero. The precise network/server-side loss mechanism remains unconfirmed; server-side capture would narrow it down. Raw captures stay outside Git and were archived locally on the old host at `/tmp/find-nameservers-captures-2026-10-19.tar.gz`; arrange a separate host-to-host transfer if needed.
 
 On the new host, read this file, `BENCHMARK.md`, and PR #7 before continuing. Build with `go build .`; validate with `go test ./...`, `go test -race ./...`, and `go vet ./...`. Next work is to establish a representative authorized routed benchmark and revisit rate/retry defaults there, rather than continuing to tune solely for CARP on the local LAN.
