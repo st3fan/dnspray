@@ -48,7 +48,7 @@ type ripeResponse struct {
 		ListPrefixes bool   `json:"list_prefixes"`
 		Prefixes     struct {
 			V4 struct {
-				Originating []string `json:"originating"`
+				Originating *[]string `json:"originating"`
 			} `json:"v4"`
 		} `json:"prefixes"`
 	} `json:"data"`
@@ -162,8 +162,11 @@ func parseRIPE(body []byte, asn string) ([]netip.Prefix, error) {
 	if err != nil || canonical != asn {
 		return nil, errors.New("RIPE response ASN does not match the requested ASN")
 	}
+	if response.Data.Prefixes.V4.Originating == nil {
+		return nil, errors.New("RIPE response is missing the IPv4 origin-prefix array")
+	}
 	var prefixes []netip.Prefix
-	for _, value := range response.Data.Prefixes.V4.Originating {
+	for _, value := range *response.Data.Prefixes.V4.Originating {
 		prefix, err := netip.ParsePrefix(value)
 		if err != nil {
 			return nil, fmt.Errorf("invalid RIPE prefix %q", value)
@@ -171,9 +174,6 @@ func parseRIPE(body []byte, asn string) ([]netip.Prefix, error) {
 		if prefix.Addr().Is4() {
 			prefixes = append(prefixes, prefix.Masked())
 		}
-	}
-	if len(prefixes) == 0 {
-		return nil, errors.New("RIPE returned no originated IPv4 prefixes")
 	}
 	return prefixes, nil
 }

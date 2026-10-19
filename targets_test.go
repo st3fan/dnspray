@@ -66,7 +66,7 @@ func TestResolveTargetsBeforeScanning(t *testing.T) {
 	if err != nil || len(prefixes) != 2 {
 		t.Fatal("IP-only scan needed API", prefixes, err)
 	}
-	for _, resolved := range [][]netip.Prefix{nil, {{}}, {netip.MustParsePrefix("2001:db8::/32")}} {
+	for _, resolved := range [][]netip.Prefix{{{}}, {netip.MustParsePrefix("2001:db8::/32")}} {
 		prefixes, err = resolveTargets(context.Background(), []string{"192.0.2.1", "AS64496"}, func(context.Context, string) ([]netip.Prefix, error) { return resolved, nil }, nil)
 		if err == nil || prefixes != nil {
 			t.Fatal("returned incomplete/invalid ASN scope", prefixes, err)

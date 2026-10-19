@@ -80,8 +80,12 @@ func resolveTargets(ctx context.Context, args []string, lookup asnLookup, logger
 		if err != nil {
 			return nil, fmt.Errorf("resolve %s: %w", target.asn, err)
 		}
+		expanded[target.asn] = true
 		if len(resolved) == 0 {
-			return nil, fmt.Errorf("resolve %s: no originated IPv4 prefixes", target.asn)
+			if logger != nil {
+				logger.Printf("%s: no originated IPv4 prefixes; skipping", target.asn)
+			}
+			continue
 		}
 		normalized := make([]netip.Prefix, 0, len(resolved))
 		for _, prefix := range resolved {
@@ -97,10 +101,12 @@ func resolveTargets(ctx context.Context, args []string, lookup asnLookup, logger
 		}
 		prefixes = append(prefixes, normalized...)
 		foundScopes = append(foundScopes, asnScope{target.asn, normalized})
-		expanded[target.asn] = true
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if len(prefixes) == 0 {
+		return nil, errors.New("no scannable targets: no originated IPv4 prefixes found")
 	}
 	prefixes = uniquePrefixes(prefixes)
 	if logger != nil {
