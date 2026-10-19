@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"math"
 	"net/netip"
 	"os"
@@ -16,12 +17,18 @@ import (
 )
 
 func main() {
-	host := flag.String("h", "www.example.com", "hostname to query")
+	host := flag.String("h", "", "optional non-recursive A discovery query (default: root NS)")
 	timeout := flag.Float64("t", 2, "seconds to listen after the final request")
 	rate := flag.Int("rate", defaultRate, "maximum packets per second (0 disables pacing)")
 	gap := flag.Duration("retry-gap", defaultRetryGap, "minimum delay between attempts to the same address")
+	discoverOnly := flag.Bool("discover-only", false, "only discover responding DNS addresses")
+	jsonOutput := flag.Bool("json", false, "write structured server reports as JSON")
+	checkWorkers := flag.Int("check-workers", 8, "maximum concurrent server inspections")
+	checkTimeout := flag.Duration("check-timeout", 2*time.Second, "deadline for each capability check")
+	var tests testOptions
+	tests.register(flag.CommandLine)
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [-h hostname] [-t seconds] [-rate packets/s] [-retry-gap duration] CIDR-or-IP [CIDR-or-IP ...]\n", os.Args[0])
+		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [options] CIDR-or-IP [CIDR-or-IP ...]\n", os.Args[0])
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -40,7 +47,26 @@ func main() {
 		os.Exit(2)
 	}
 
-	question, err := makeQuestion(*host)
+	inspection := inspectionOptions{workers: *checkWorkers, timeout: *checkTimeout, port: 53}
+	if err := inspection.validate(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	if *discoverOnly && *jsonOutput {
+		fmt.Fprintln(os.Stderr, "-json cannot be combined with -discover-only")
+		os.Exit(2)
+	}
+	if err := tests.validate(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	checks := tests.checks()
+	if *discoverOnly && len(checks) > 0 {
+		fmt.Fprintln(os.Stderr, "-discover-only cannot be combined with -test-* options")
+		os.Exit(2)
+	}
+	onlyAddresses := *discoverOnly || (len(checks) == 0 && !*jsonOutput)
+	question, err := discoveryQuestion(*host)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
@@ -53,7 +79,19 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	if err := scan(ctx, contained, question, opts, os.Stdout); err != nil && !errors.Is(err, context.Canceled) {
+	output := io.Writer(io.Discard)
+	if onlyAddresses {
+		output = os.Stdout
+	}
+	found, err := discover(ctx, contained, question, opts, output)
+	if err == nil && !onlyAddresses {
+		var reports []serverReport
+		reports, err = inspectServers(ctx, found, checks, inspection)
+		if err == nil {
+			err = writeReports(os.Stdout, reports, *jsonOutput)
+		}
+	}
+	if err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -103,4 +141,19 @@ func validResponse(query, response *dns.Msg) bool {
 	return response.Id == query.Id && response.Response &&
 		response.Opcode == dns.OpcodeQuery &&
 		response.Question[0] == query.Question[0]
+}
+
+// Discovery requests no recursive work; any matching DNS response is sufficient.
+func discoveryQuestion(host string) (*dns.Msg, error) {
+	if host == "" {
+		q := new(dns.Msg).SetQuestion(".", dns.TypeNS)
+		q.RecursionDesired = false
+		return q, nil
+	}
+	q, err := makeQuestion(host)
+	if err != nil {
+		return nil, err
+	}
+	q.RecursionDesired = false
+	return q, nil
 }

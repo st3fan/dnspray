@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"sort"
 	"sync"
 	"time"
 
@@ -45,6 +46,10 @@ func (o scanOptions) validate() error {
 	return nil
 }
 
+type foundServer struct {
+	Address netip.Addr `json:"address"`
+}
+
 type scanner struct {
 	opts     scanOptions
 	sockets  map[bool]*net.UDPConn // true for IPv6
@@ -52,14 +57,15 @@ type scanner struct {
 	key      [32]byte
 	mu       sync.Mutex
 	sent     []frontier
+	servers  []foundServer
 	found    map[netip.Addr]bool
 	output   io.Writer
 	port     uint16
 }
 
-func scan(ctx context.Context, prefixes []netip.Prefix, question *dns.Msg, opts scanOptions, output io.Writer) error {
+func discover(ctx context.Context, prefixes []netip.Prefix, question *dns.Msg, opts scanOptions, output io.Writer) ([]foundServer, error) {
 	if err := opts.validate(); err != nil {
-		return err
+		return nil, err
 	}
 	s := &scanner{opts: opts, sockets: make(map[bool]*net.UDPConn), question: question,
 		found: make(map[netip.Addr]bool), output: output, port: 53}
@@ -75,20 +81,22 @@ func scan(ctx context.Context, prefixes []netip.Prefix, question *dns.Msg, opts 
 		}
 		conn, err := net.ListenPacket(network, local)
 		if err != nil {
-			return fmt.Errorf("listen %s: %w", network, err)
+			return nil, fmt.Errorf("listen %s: %w", network, err)
 		}
 		udp := conn.(*net.UDPConn)
 		s.sockets[v6] = udp
 		// Burst probes to unresolved neighbors remain queued in the kernel.
 		// Give sending and receiving room without changing host-wide settings.
 		if err := udp.SetWriteBuffer(4 << 20); err != nil {
-			return fmt.Errorf("set UDP send buffer: %w", err)
+			return nil, fmt.Errorf("set UDP send buffer: %w", err)
 		}
 		if err := udp.SetReadBuffer(4 << 20); err != nil {
-			return fmt.Errorf("set UDP receive buffer: %w", err)
+			return nil, fmt.Errorf("set UDP receive buffer: %w", err)
 		}
 	}
-	return s.run(ctx, prefixes, opts.timeout)
+	err := s.run(ctx, prefixes, opts.timeout)
+	sort.Slice(s.servers, func(i, j int) bool { return s.servers[i].Address.Less(s.servers[j].Address) })
+	return s.servers, err
 }
 
 func (s *scanner) close() {
@@ -289,5 +297,6 @@ func (s *scanner) accept(peer netip.AddrPort, response *dns.Msg) error {
 		return fmt.Errorf("write result: %w", err)
 	}
 	s.found[addr] = true
+	s.servers = append(s.servers, foundServer{Address: addr})
 	return nil
 }

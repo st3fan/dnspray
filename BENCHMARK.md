@@ -2,7 +2,7 @@
 
 Run `python3 scripts/benchmark.py` from a machine connected to the homelab before requesting review of every PR. Requires Python 3, Go, and Git. The script builds the current checkout once into a temporary directory, then times three sequential scans of `192.168.0.0/24` and `192.168.53.0/24` (512 addresses). The user has authorized these scans. This is a manual per-PR check; public GitHub-hosted runners cannot reach the homelab.
 
-The default benchmark command is `find-nameservers -rate 0 -retry-gap 50ms -t 2.0 192.168.0.0/24 192.168.53.0/24`, using hostname `www.example.com`, three attempts per address, and batches of up to 1,024 addresses. `-t` is a final reply grace period after sending. The runner records the exact flags used. Earlier records retain the worker-based and unrestricted-burst scanner settings.
+The default benchmark command is `find-nameservers -discover-only -rate 0 -retry-gap 50ms -t 2.0 192.168.0.0/24 192.168.53.0/24`, using a non-recursive root NS discovery query, three attempts per address, and batches of up to 1,024 addresses. `-t` is a final reply grace period after sending. The runner records the exact flags used. Earlier records retain the worker-based and unrestricted-burst scanner settings.
 
 Use `python3 scripts/benchmark.py` for unrestricted sending, `--rate 100 --retry-gap 1s` for the previous conservative profile, `--rate 500 --retry-gap 500ms` or `--rate 500 --retry-gap 1s` to compare faster sending and retry spacing, and `--timeout 5` to test longer listening independently of pacing and retry settings. Each invocation runs three scans and appends a separate record; it always scans only the two fixed authorized prefixes. Build time is excluded. The first scan is included; no separate warm-up is performed. Each scan has a 120-second runner limit to fail visibly if it hangs.
 
@@ -686,3 +686,678 @@ Run 3 discovered addresses:
 ```
 
 Homelab validation limitation: this migrated host has no interface or route into the homelab; route inspection sends `192.168.53.1` through the public PPP default gateway. The fixed homelab benchmark was not run here. No failed connectivity or empty discovery is reported as a homelab baseline. The historical homelab records above are retained.
+
+## Inspection stack discovery benchmark — 2026-10-19T00:46:06+00:00
+
+- Source revision: `c8f0648366cb08cc2123323e341816b4ade2f918` (committed before measurement)
+- Environment: `Linux-7.0.0-38-generic-x86_64-with-glibc2.43` / `x86_64`
+- Go: `go version go1.27.1 linux/amd64`
+- CPU: Intel(R) N150
+- Command: `find-nameservers -discover-only 216.40.47.0/24 64.98.148.0/24`
+- Query: root NS, RD=0; rate 0, retry gap 50ms, three attempts, final grace 2s. Three sequential scans of 512 addresses; build excluded.
+- Homelab unavailable: this migrated host has no homelab interface/route; its public PPP default route handles those private addresses. The fixed homelab runner was not run. No empty result is treated as a baseline.
+
+| Run | Elapsed (s) | DNS addresses |
+| --- | ---: | ---: |
+| 1 | 2.109 | 34 |
+| 2 | 2.110 | 34 |
+| 3 | 2.110 | 34 |
+
+Median elapsed: **2.110s**. Discovery sets identical across runs: True. Previous routed A/RD=1 discovery found 34 addresses at 2.110s; this query change can affect coverage and should not be mistaken for a timing-only change.
+
+Run 1 discovered addresses:
+
+```text
+64.98.148.11
+64.98.148.12
+64.98.148.13
+64.98.148.14
+64.98.148.16
+64.98.148.17
+64.98.148.18
+64.98.148.19
+64.98.148.20
+64.98.148.121
+64.98.148.122
+64.98.148.123
+64.98.148.137
+64.98.148.138
+64.98.148.139
+64.98.148.145
+64.98.148.146
+64.98.148.147
+64.98.148.153
+64.98.148.161
+216.40.47.18
+216.40.47.19
+216.40.47.26
+216.40.47.80
+216.40.47.90
+216.40.47.201
+216.40.47.202
+216.40.47.209
+216.40.47.210
+216.40.47.225
+216.40.47.233
+216.40.47.234
+216.40.47.235
+216.40.47.236
+```
+
+Run 2 discovered addresses:
+
+```text
+64.98.148.11
+64.98.148.12
+64.98.148.13
+64.98.148.14
+64.98.148.16
+64.98.148.17
+64.98.148.18
+64.98.148.19
+64.98.148.20
+64.98.148.121
+64.98.148.122
+64.98.148.123
+64.98.148.137
+64.98.148.138
+64.98.148.139
+64.98.148.145
+64.98.148.146
+64.98.148.147
+64.98.148.153
+64.98.148.161
+216.40.47.18
+216.40.47.19
+216.40.47.26
+216.40.47.80
+216.40.47.90
+216.40.47.201
+216.40.47.202
+216.40.47.209
+216.40.47.210
+216.40.47.225
+216.40.47.233
+216.40.47.234
+216.40.47.235
+216.40.47.236
+```
+
+Run 3 discovered addresses:
+
+```text
+64.98.148.11
+64.98.148.12
+64.98.148.13
+64.98.148.14
+64.98.148.16
+64.98.148.17
+64.98.148.18
+64.98.148.19
+64.98.148.20
+64.98.148.121
+64.98.148.122
+64.98.148.123
+64.98.148.137
+64.98.148.138
+64.98.148.139
+64.98.148.145
+64.98.148.146
+64.98.148.147
+64.98.148.153
+64.98.148.161
+216.40.47.18
+216.40.47.19
+216.40.47.26
+216.40.47.80
+216.40.47.90
+216.40.47.201
+216.40.47.202
+216.40.47.209
+216.40.47.210
+216.40.47.225
+216.40.47.233
+216.40.47.234
+216.40.47.235
+216.40.47.236
+```
+
+## Inspection stack discovery benchmark — 2026-10-19T00:48:18+00:00
+
+- Source revision: `8a94ad3dca25ad476d381986297a6b1f46c8ef67` (committed before measurement)
+- Environment: `Linux-7.0.0-38-generic-x86_64-with-glibc2.43` / `x86_64`
+- Go: `go version go1.27.1 linux/amd64`
+- CPU: Intel(R) N150
+- Command: `find-nameservers -discover-only 216.40.47.0/24 64.98.148.0/24`
+- Query: root NS, RD=0; rate 0, retry gap 50ms, three attempts, final grace 2s. Three sequential scans of 512 addresses; build excluded.
+- Homelab unavailable: this migrated host has no homelab interface/route; its public PPP default route handles those private addresses. The fixed homelab runner was not run. No empty result is treated as a baseline.
+
+| Run | Elapsed (s) | DNS addresses |
+| --- | ---: | ---: |
+| 1 | 2.110 | 34 |
+| 2 | 2.110 | 34 |
+| 3 | 2.112 | 34 |
+
+Median elapsed: **2.110s**. Discovery sets identical across runs: True. Previous routed A/RD=1 discovery found 34 addresses at 2.110s; this query change can affect coverage and should not be mistaken for a timing-only change.
+
+Run 1 discovered addresses:
+
+```text
+64.98.148.11
+64.98.148.12
+64.98.148.13
+64.98.148.14
+64.98.148.16
+64.98.148.17
+64.98.148.18
+64.98.148.19
+64.98.148.20
+64.98.148.121
+64.98.148.122
+64.98.148.123
+64.98.148.137
+64.98.148.138
+64.98.148.139
+64.98.148.145
+64.98.148.146
+64.98.148.147
+64.98.148.153
+64.98.148.161
+216.40.47.18
+216.40.47.19
+216.40.47.26
+216.40.47.80
+216.40.47.90
+216.40.47.201
+216.40.47.202
+216.40.47.209
+216.40.47.210
+216.40.47.225
+216.40.47.233
+216.40.47.234
+216.40.47.235
+216.40.47.236
+```
+
+Run 2 discovered addresses:
+
+```text
+64.98.148.11
+64.98.148.12
+64.98.148.13
+64.98.148.14
+64.98.148.16
+64.98.148.17
+64.98.148.18
+64.98.148.19
+64.98.148.20
+64.98.148.121
+64.98.148.122
+64.98.148.123
+64.98.148.137
+64.98.148.138
+64.98.148.139
+64.98.148.145
+64.98.148.146
+64.98.148.147
+64.98.148.153
+64.98.148.161
+216.40.47.18
+216.40.47.19
+216.40.47.26
+216.40.47.80
+216.40.47.90
+216.40.47.201
+216.40.47.202
+216.40.47.209
+216.40.47.210
+216.40.47.225
+216.40.47.233
+216.40.47.234
+216.40.47.235
+216.40.47.236
+```
+
+Run 3 discovered addresses:
+
+```text
+64.98.148.11
+64.98.148.12
+64.98.148.13
+64.98.148.14
+64.98.148.16
+64.98.148.17
+64.98.148.18
+64.98.148.19
+64.98.148.20
+64.98.148.121
+64.98.148.122
+64.98.148.123
+64.98.148.137
+64.98.148.138
+64.98.148.139
+64.98.148.145
+64.98.148.146
+64.98.148.147
+64.98.148.153
+64.98.148.161
+216.40.47.18
+216.40.47.19
+216.40.47.26
+216.40.47.80
+216.40.47.90
+216.40.47.201
+216.40.47.202
+216.40.47.209
+216.40.47.210
+216.40.47.225
+216.40.47.233
+216.40.47.234
+216.40.47.235
+216.40.47.236
+```
+
+## Inspection stack discovery benchmark — 2026-10-19T00:56:33+00:00
+
+- Source revision: `d7bcc06a6519524d390171222a57bb12e3cdbfad` (committed before measurement)
+- Environment: `Linux-7.0.0-38-generic-x86_64-with-glibc2.43` / `x86_64`
+- Go: `go version go1.27.1 linux/amd64`
+- CPU: Intel(R) N150
+- Command: `find-nameservers -discover-only 216.40.47.0/24 64.98.148.0/24`
+- Query: root NS, RD=0; rate 0, retry gap 50ms, three attempts, final grace 2s. Three sequential scans of 512 addresses; build excluded.
+- Homelab unavailable: this migrated host has no homelab interface/route; its public PPP default route handles those private addresses. The fixed homelab runner was not run. No empty result is treated as a baseline.
+
+| Run | Elapsed (s) | DNS addresses |
+| --- | ---: | ---: |
+| 1 | 2.110 | 34 |
+| 2 | 2.109 | 34 |
+| 3 | 2.111 | 34 |
+
+Median elapsed: **2.110s**. Discovery sets identical across runs: True. Previous routed A/RD=1 discovery found 34 addresses at 2.110s; this query change can affect coverage and should not be mistaken for a timing-only change.
+
+Run 1 discovered addresses:
+
+```text
+64.98.148.11
+64.98.148.12
+64.98.148.13
+64.98.148.14
+64.98.148.16
+64.98.148.17
+64.98.148.18
+64.98.148.19
+64.98.148.20
+64.98.148.121
+64.98.148.122
+64.98.148.123
+64.98.148.137
+64.98.148.138
+64.98.148.139
+64.98.148.145
+64.98.148.146
+64.98.148.147
+64.98.148.153
+64.98.148.161
+216.40.47.18
+216.40.47.19
+216.40.47.26
+216.40.47.80
+216.40.47.90
+216.40.47.201
+216.40.47.202
+216.40.47.209
+216.40.47.210
+216.40.47.225
+216.40.47.233
+216.40.47.234
+216.40.47.235
+216.40.47.236
+```
+
+Run 2 discovered addresses:
+
+```text
+64.98.148.11
+64.98.148.12
+64.98.148.13
+64.98.148.14
+64.98.148.16
+64.98.148.17
+64.98.148.18
+64.98.148.19
+64.98.148.20
+64.98.148.121
+64.98.148.122
+64.98.148.123
+64.98.148.137
+64.98.148.138
+64.98.148.139
+64.98.148.145
+64.98.148.146
+64.98.148.147
+64.98.148.153
+64.98.148.161
+216.40.47.18
+216.40.47.19
+216.40.47.26
+216.40.47.80
+216.40.47.90
+216.40.47.201
+216.40.47.202
+216.40.47.209
+216.40.47.210
+216.40.47.225
+216.40.47.233
+216.40.47.234
+216.40.47.235
+216.40.47.236
+```
+
+Run 3 discovered addresses:
+
+```text
+64.98.148.11
+64.98.148.12
+64.98.148.13
+64.98.148.14
+64.98.148.16
+64.98.148.17
+64.98.148.18
+64.98.148.19
+64.98.148.20
+64.98.148.121
+64.98.148.122
+64.98.148.123
+64.98.148.137
+64.98.148.138
+64.98.148.139
+64.98.148.145
+64.98.148.146
+64.98.148.147
+64.98.148.153
+64.98.148.161
+216.40.47.18
+216.40.47.19
+216.40.47.26
+216.40.47.80
+216.40.47.90
+216.40.47.201
+216.40.47.202
+216.40.47.209
+216.40.47.210
+216.40.47.225
+216.40.47.233
+216.40.47.234
+216.40.47.235
+216.40.47.236
+```
+
+## Inspection stack discovery benchmark — 2026-10-19T00:50:44+00:00
+
+- Source revision: `1cab1c9a22a5a712f50d4597dabd9e00197534b9` (committed before measurement)
+- Environment: `Linux-7.0.0-38-generic-x86_64-with-glibc2.43` / `x86_64`
+- Go: `go version go1.27.1 linux/amd64`
+- CPU: Intel(R) N150
+- Command: `find-nameservers -discover-only 216.40.47.0/24 64.98.148.0/24`
+- Query: root NS, RD=0; rate 0, retry gap 50ms, three attempts, final grace 2s. Three sequential scans of 512 addresses; build excluded.
+- Homelab unavailable: this migrated host has no homelab interface/route; its public PPP default route handles those private addresses. The fixed homelab runner was not run. No empty result is treated as a baseline.
+
+| Run | Elapsed (s) | DNS addresses |
+| --- | ---: | ---: |
+| 1 | 2.111 | 34 |
+| 2 | 2.111 | 34 |
+| 3 | 2.110 | 34 |
+
+Median elapsed: **2.111s**. Discovery sets identical across runs: True. Previous routed A/RD=1 discovery found 34 addresses at 2.110s; this query change can affect coverage and should not be mistaken for a timing-only change.
+
+Run 1 discovered addresses:
+
+```text
+64.98.148.11
+64.98.148.12
+64.98.148.13
+64.98.148.14
+64.98.148.16
+64.98.148.17
+64.98.148.18
+64.98.148.19
+64.98.148.20
+64.98.148.121
+64.98.148.122
+64.98.148.123
+64.98.148.137
+64.98.148.138
+64.98.148.139
+64.98.148.145
+64.98.148.146
+64.98.148.147
+64.98.148.153
+64.98.148.161
+216.40.47.18
+216.40.47.19
+216.40.47.26
+216.40.47.80
+216.40.47.90
+216.40.47.201
+216.40.47.202
+216.40.47.209
+216.40.47.210
+216.40.47.225
+216.40.47.233
+216.40.47.234
+216.40.47.235
+216.40.47.236
+```
+
+Run 2 discovered addresses:
+
+```text
+64.98.148.11
+64.98.148.12
+64.98.148.13
+64.98.148.14
+64.98.148.16
+64.98.148.17
+64.98.148.18
+64.98.148.19
+64.98.148.20
+64.98.148.121
+64.98.148.122
+64.98.148.123
+64.98.148.137
+64.98.148.138
+64.98.148.139
+64.98.148.145
+64.98.148.146
+64.98.148.147
+64.98.148.153
+64.98.148.161
+216.40.47.18
+216.40.47.19
+216.40.47.26
+216.40.47.80
+216.40.47.90
+216.40.47.201
+216.40.47.202
+216.40.47.209
+216.40.47.210
+216.40.47.225
+216.40.47.233
+216.40.47.234
+216.40.47.235
+216.40.47.236
+```
+
+Run 3 discovered addresses:
+
+```text
+64.98.148.11
+64.98.148.12
+64.98.148.13
+64.98.148.14
+64.98.148.16
+64.98.148.17
+64.98.148.18
+64.98.148.19
+64.98.148.20
+64.98.148.121
+64.98.148.122
+64.98.148.123
+64.98.148.137
+64.98.148.138
+64.98.148.139
+64.98.148.145
+64.98.148.146
+64.98.148.147
+64.98.148.153
+64.98.148.161
+216.40.47.18
+216.40.47.19
+216.40.47.26
+216.40.47.80
+216.40.47.90
+216.40.47.201
+216.40.47.202
+216.40.47.209
+216.40.47.210
+216.40.47.225
+216.40.47.233
+216.40.47.234
+216.40.47.235
+216.40.47.236
+```
+
+## Inspection stack discovery benchmark — 2026-10-19T00:57:53+00:00
+
+- Source revision: `789af23be3ec37b07bba24c6869878667251c4c8` (committed before measurement)
+- Environment: `Linux-7.0.0-38-generic-x86_64-with-glibc2.43` / `x86_64`
+- Go: `go version go1.27.1 linux/amd64`
+- CPU: Intel(R) N150
+- Command: `find-nameservers -discover-only 216.40.47.0/24 64.98.148.0/24`
+- Query: root NS, RD=0; rate 0, retry gap 50ms, three attempts, final grace 2s. Three sequential scans of 512 addresses; build excluded.
+- Homelab unavailable: this migrated host has no homelab interface/route; its public PPP default route handles those private addresses. The fixed homelab runner was not run. No empty result is treated as a baseline.
+
+| Run | Elapsed (s) | DNS addresses |
+| --- | ---: | ---: |
+| 1 | 2.110 | 34 |
+| 2 | 2.109 | 34 |
+| 3 | 2.110 | 34 |
+
+Median elapsed: **2.110s**. Discovery sets identical across runs: True. Previous routed A/RD=1 discovery found 34 addresses at 2.110s; this query change can affect coverage and should not be mistaken for a timing-only change.
+
+Run 1 discovered addresses:
+
+```text
+64.98.148.11
+64.98.148.12
+64.98.148.13
+64.98.148.14
+64.98.148.16
+64.98.148.17
+64.98.148.18
+64.98.148.19
+64.98.148.20
+64.98.148.121
+64.98.148.122
+64.98.148.123
+64.98.148.137
+64.98.148.138
+64.98.148.139
+64.98.148.145
+64.98.148.146
+64.98.148.147
+64.98.148.153
+64.98.148.161
+216.40.47.18
+216.40.47.19
+216.40.47.26
+216.40.47.80
+216.40.47.90
+216.40.47.201
+216.40.47.202
+216.40.47.209
+216.40.47.210
+216.40.47.225
+216.40.47.233
+216.40.47.234
+216.40.47.235
+216.40.47.236
+```
+
+Run 2 discovered addresses:
+
+```text
+64.98.148.11
+64.98.148.12
+64.98.148.13
+64.98.148.14
+64.98.148.16
+64.98.148.17
+64.98.148.18
+64.98.148.19
+64.98.148.20
+64.98.148.121
+64.98.148.122
+64.98.148.123
+64.98.148.137
+64.98.148.138
+64.98.148.139
+64.98.148.145
+64.98.148.146
+64.98.148.147
+64.98.148.153
+64.98.148.161
+216.40.47.18
+216.40.47.19
+216.40.47.26
+216.40.47.80
+216.40.47.90
+216.40.47.201
+216.40.47.202
+216.40.47.209
+216.40.47.210
+216.40.47.225
+216.40.47.233
+216.40.47.234
+216.40.47.235
+216.40.47.236
+```
+
+Run 3 discovered addresses:
+
+```text
+64.98.148.11
+64.98.148.12
+64.98.148.13
+64.98.148.14
+64.98.148.16
+64.98.148.17
+64.98.148.18
+64.98.148.19
+64.98.148.20
+64.98.148.121
+64.98.148.122
+64.98.148.123
+64.98.148.137
+64.98.148.138
+64.98.148.139
+64.98.148.145
+64.98.148.146
+64.98.148.147
+64.98.148.153
+64.98.148.161
+216.40.47.18
+216.40.47.19
+216.40.47.26
+216.40.47.80
+216.40.47.90
+216.40.47.201
+216.40.47.202
+216.40.47.209
+216.40.47.210
+216.40.47.225
+216.40.47.233
+216.40.47.234
+216.40.47.235
+216.40.47.236
+```
