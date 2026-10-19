@@ -45,6 +45,18 @@ find-nameservers -discover-only 192.0.2.0/24
 
 `-json` outputs a JSON array with an address and independent check results, including statuses, evidence, and returned version strings. Selected tests produce human-readable reports by default. With no tests, `-json` produces address records with empty check lists. `-discover-only` emits one address per line and skips every capability check; it cannot be combined with `-json` or `-test-*` options. Benchmarks explicitly select this discovery-only mode. Timeouts and inconclusive answers are reported separately from refusals.
 
+### Recursion evidence
+
+`-test-recursion name` sends an RD=0 control first, reserving half the remaining check deadline for it, then sends RD=1 with the remaining time. A failed control is recorded and does not suppress the RD=1 probe; cancellation still stops the check. Supplied names are queried exactly, with no generated names or implicit extra targets.
+
+Reports separate `recursion_advertised` (the valid RD=1 response's RA flag, or unknown if no usable response) from `recursion_observed` (whether this comparison established evidence of recursive answering). A false observed value means no evidence was established, not proof that recursion is impossible. RA=0 produces `not-available` even for authoritative answers: recursion was not advertised to this client for this query. Refusals, unsupported queries, failures and timeouts keep their own outcomes.
+
+RA=1 alone, cached answers and authoritative answers remain inconclusive. A non-authoritative positive A answer (including CNAME chains), or NXDOMAIN with a relevant SOA, can provide recursive-answering evidence when the RD=0 control did not already supply data. A missing/failed control or an inconsistent response prevents that comparison from establishing recursion. This does not exclude cached or synthesized answers or establish access from every client.
+
+Human and JSON reports retain each probe's flags, errors, and answer/authority records. Each probe retains at most 32 complete record strings and 8KiB of record text across both sections; omitted records set `evidence_limited`. Truncation and UDP-to-TCP fallback are recorded. Limits affect retained evidence, not response classification.
+
+For stronger testing, use multiple independent names outside the target's locally served zones. Fresh names under a domain you control, with known positive or negative behavior and authoritative query logs, provide stronger evidence than a popular cached name. Random labels alone do not prove recursion: negative cache synthesis can answer without a new upstream query. Automatic fresh-name generation and log correlation are not performed.
+
 ### Authority
 
 Repeat `-test-authority domain` to ask each discovered server a non-recursive SOA question for each domain. A validated AA=1 answer with NOERROR or NXDOMAIN is reported as `observed` authority for that query. AA=0 is `not-authoritative`; cached SOAs and referrals do not establish authority. Refusals, timeouts, and errors keep separate outcomes. JSON retains AA/RCODE observations and SOA records from answer/authority sections.

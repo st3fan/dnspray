@@ -21,22 +21,34 @@ type serverCheck interface {
 }
 
 type observation struct {
-	Recursive     bool   `json:"rd"`
-	Available     bool   `json:"ra"`
-	Authoritative bool   `json:"aa"`
-	Rcode         string `json:"rcode"`
-	AnswerCount   int    `json:"answer_count"`
+	Probe            string   `json:"probe,omitempty"`
+	ResponseReceived *bool    `json:"response_received,omitempty"`
+	Error            string   `json:"error,omitempty"`
+	ErrorStatus      string   `json:"error_status,omitempty"`
+	Truncated        bool     `json:"tc"`
+	UDPTruncated     bool     `json:"udp_truncated,omitempty"`
+	Answer           []string `json:"answer,omitempty"`
+	Authority        []string `json:"authority,omitempty"`
+	EvidenceLimited  bool     `json:"evidence_limited,omitempty"`
+	Recursive        bool     `json:"rd"`
+	Available        bool     `json:"ra"`
+	Authoritative    bool     `json:"aa"`
+	Rcode            string   `json:"rcode"`
+	AnswerCount      int      `json:"answer_count"`
+	AuthorityCount   int      `json:"authority_count"`
 }
 
 type checkResult struct {
-	Check        string        `json:"check"`
-	Subject      string        `json:"subject,omitempty"`
-	Status       string        `json:"status"`
-	Detail       string        `json:"detail,omitempty"`
-	Observations []observation `json:"observations,omitempty"`
-	Values       []string      `json:"values,omitempty"`
-	Records      int           `json:"records,omitempty"`
-	Bytes        int           `json:"bytes,omitempty"`
+	RecursionAdvertised *bool         `json:"recursion_advertised,omitempty"`
+	RecursionObserved   *bool         `json:"recursion_observed,omitempty"`
+	Check               string        `json:"check"`
+	Subject             string        `json:"subject,omitempty"`
+	Status              string        `json:"status"`
+	Detail              string        `json:"detail,omitempty"`
+	Observations        []observation `json:"observations,omitempty"`
+	Values              []string      `json:"values,omitempty"`
+	Records             int           `json:"records,omitempty"`
+	Bytes               int           `json:"bytes,omitempty"`
 }
 
 type serverReport struct {
@@ -100,31 +112,39 @@ feed:
 }
 
 func queryDNS(ctx context.Context, target netip.AddrPort, q *dns.Msg) (*dns.Msg, error) {
+	response, _, err := queryDNSObserved(ctx, target, q)
+	return response, err
+}
+
+// Keep the UDP truncation signal and last received message even if TCP fallback
+// fails, so recursion reports can explain each probe independently.
+func queryDNSObserved(ctx context.Context, target netip.AddrPort, q *dns.Msg) (*dns.Msg, bool, error) {
 	client := &dns.Client{Net: "udp", Timeout: 2 * time.Second}
 	if deadline, ok := ctx.Deadline(); ok {
 		client.Timeout = time.Until(deadline)
 		if client.Timeout <= 0 {
-			return nil, context.DeadlineExceeded
+			return nil, false, context.DeadlineExceeded
 		}
 	}
 	response, err := exchangeDNS(ctx, client, q, target)
 	if err != nil {
-		return nil, err
+		return response, false, err
 	}
 	if !validResponse(q, response) {
-		return nil, errors.New("mismatched DNS response")
+		return response, false, errors.New("mismatched DNS response")
 	}
-	if response.Truncated {
-		client.Net = "tcp"
-		response, err = exchangeDNS(ctx, client, q, target)
-		if err != nil {
-			return nil, err
-		}
-		if !validResponse(q, response) || response.Truncated {
-			return nil, errors.New("invalid TCP DNS response")
-		}
+	if !response.Truncated {
+		return response, false, nil
 	}
-	return response, nil
+	client.Net = "tcp"
+	tcp, err := exchangeDNS(ctx, client, q, target)
+	if err != nil {
+		return response, true, fmt.Errorf("TCP fallback: %w", err)
+	}
+	if !validResponse(q, tcp) || tcp.Truncated {
+		return tcp, true, errors.New("invalid TCP DNS response")
+	}
+	return tcp, true, nil
 }
 
 // Explicit connection ownership makes cancellation interrupt a pending read,
@@ -200,75 +220,7 @@ func (versionCheck) Run(ctx context.Context, target netip.AddrPort) checkResult 
 }
 
 func observe(r *dns.Msg) observation {
-	return observation{Recursive: r.RecursionDesired, Available: r.RecursionAvailable, Authoritative: r.Authoritative, Rcode: dns.RcodeToString[r.Rcode], AnswerCount: len(r.Answer)}
-}
-
-type recursionCheck struct{ name string }
-
-func (check recursionCheck) Run(ctx context.Context, target netip.AddrPort) checkResult {
-	result := checkResult{Check: "recursion", Subject: check.name, Status: "inconclusive"}
-	// Query RD=0 first so the test does not seed the cache before its control.
-	q := new(dns.Msg).SetQuestion(check.name, dns.TypeA)
-	q.RecursionDesired = false
-	control, err := queryDNS(ctx, target, q)
-	if err != nil {
-		result.Status = failureStatus(err)
-		result.Detail = "RD=0 control: " + err.Error()
-		return result
-	}
-	result.Observations = append(result.Observations, observe(control))
-	q = new(dns.Msg).SetQuestion(check.name, dns.TypeA)
-	recursive, err := queryDNS(ctx, target, q)
-	if err != nil {
-		result.Status = failureStatus(err)
-		result.Detail = "RD=1 probe: " + err.Error()
-		return result
-	}
-	result.Observations = append(result.Observations, observe(recursive))
-	if recursive.Rcode == dns.RcodeRefused || recursive.Rcode == dns.RcodeNotImplemented {
-		result.Status = responseStatus(recursive.Rcode)
-		result.Detail = "RD=1 query returned " + dns.RcodeToString[recursive.Rcode]
-		return result
-	}
-	if recursive.Authoritative || control.Authoritative {
-		result.Detail = "authoritative answer cannot establish recursion"
-		return result
-	}
-	if control.Rcode == dns.RcodeSuccess && len(control.Answer) > 0 {
-		result.Detail = "RD=0 already answered; cached data cannot establish recursion"
-		return result
-	}
-	// A positive A result must answer the question, possibly through CNAMEs.
-	if recursive.RecursionAvailable && recursive.Rcode == dns.RcodeSuccess && answersA(recursive, check.name) {
-		result.Status = "observed"
-		result.Detail = "recursive answering observed from this scanner; RA advertised and RD=1 answered where RD=0 did not; not proof of access from all clients"
-	} else {
-		result.Detail = "no evidence of recursive answering; RA alone is insufficient"
-	}
-	return result
-}
-
-func answersA(r *dns.Msg, name string) bool {
-	name = dns.Fqdn(name)
-	for range len(r.Answer) + 1 {
-		next := ""
-		for _, rr := range r.Answer {
-			if rr.Header().Class != dns.ClassINET || !strings.EqualFold(rr.Header().Name, name) {
-				continue
-			}
-			switch rr := rr.(type) {
-			case *dns.A:
-				return true
-			case *dns.CNAME:
-				next = rr.Target
-			}
-		}
-		if next == "" {
-			return false
-		}
-		name = next
-	}
-	return false
+	return observation{Truncated: r.Truncated, Recursive: r.RecursionDesired, Available: r.RecursionAvailable, Authoritative: r.Authoritative, Rcode: dns.RcodeToString[r.Rcode], AnswerCount: len(r.Answer), AuthorityCount: len(r.Ns)}
 }
 
 func writeReports(output io.Writer, reports []serverReport, jsonOutput bool) error {
@@ -292,6 +244,11 @@ func writeReports(output io.Writer, reports []serverReport, jsonOutput bool) err
 			}
 			if _, err := fmt.Fprintln(output); err != nil {
 				return err
+			}
+			if result.Check == "recursion" {
+				if err := writeRecursionEvidence(output, result); err != nil {
+					return err
+				}
 			}
 			for _, value := range result.Values {
 				if _, err := fmt.Fprintf(output, "    %q\n", value); err != nil {
