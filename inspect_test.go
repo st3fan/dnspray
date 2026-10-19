@@ -209,8 +209,8 @@ func TestRepeatedNamesFlag(t *testing.T) {
 	fs := flag.NewFlagSet("test", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	var names namesFlag
-	fs.Var(&names, "recursion-name", "")
-	if err := fs.Parse([]string{"-recursion-name", "one.example", "-recursion-name", "two.example."}); err != nil {
+	fs.Var(&names, "test-recursion", "")
+	if err := fs.Parse([]string{"-test-recursion", "one.example", "-test-recursion", "two.example."}); err != nil {
 		t.Fatal(err)
 	}
 	if len(names) != 2 || names[0] != "one.example." || names[1] != "two.example." {

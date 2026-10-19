@@ -25,8 +25,8 @@ func main() {
 	jsonOutput := flag.Bool("json", false, "write structured server reports as JSON")
 	checkWorkers := flag.Int("check-workers", 8, "maximum concurrent server inspections")
 	checkTimeout := flag.Duration("check-timeout", 2*time.Second, "deadline for each capability check")
-	var recursionNames namesFlag
-	flag.Var(&recursionNames, "recursion-name", "external A name for recursion checks (repeatable; default www.example.com)")
+	var tests testOptions
+	tests.register(flag.CommandLine)
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [options] CIDR-or-IP [CIDR-or-IP ...]\n", os.Args[0])
 		flag.PrintDefaults()
@@ -56,9 +56,12 @@ func main() {
 		fmt.Fprintln(os.Stderr, "-json cannot be combined with -discover-only")
 		os.Exit(2)
 	}
-	if len(recursionNames) == 0 {
-		recursionNames = namesFlag{"www.example.com."}
+	checks := tests.checks()
+	if *discoverOnly && len(checks) > 0 {
+		fmt.Fprintln(os.Stderr, "-discover-only cannot be combined with -test-* options")
+		os.Exit(2)
 	}
+	onlyAddresses := *discoverOnly || (len(checks) == 0 && !*jsonOutput)
 	question, err := discoveryQuestion(*host)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -73,15 +76,11 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	output := io.Writer(io.Discard)
-	if *discoverOnly {
+	if onlyAddresses {
 		output = os.Stdout
 	}
 	found, err := discover(ctx, contained, question, opts, output)
-	if err == nil && !*discoverOnly {
-		checks := []serverCheck{versionCheck{}}
-		for _, name := range recursionNames {
-			checks = append(checks, recursionCheck{name: name})
-		}
+	if err == nil && !onlyAddresses {
 		var reports []serverReport
 		reports, err = inspectServers(ctx, found, checks, inspection)
 		if err == nil {

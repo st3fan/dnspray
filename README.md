@@ -34,13 +34,23 @@ The implementation uses [`github.com/miekg/dns`](https://github.com/miekg/dns) t
 
 ## Server inspection
 
-By default, discovery finishes first and then each discovered server is inspected. Inspection uses at most 8 concurrent server workers (`-check-workers`) and a 2s deadline per check (`-check-timeout`). Check failures are reported individually and never remove a discovered address. Detailed inspection can take longer than the roughly 2s discovery phase.
+Capability checks are opt-in. Without `-test-*` options, print discovered addresses only. When tests are selected, discovery finishes first and then each discovered server is inspected with only the selected tests. Inspection uses at most 8 concurrent server workers (`-check-workers`) and a 2s deadline per check (`-check-timeout`). Check failures are reported individually and never remove a discovered address. Detailed inspection can take longer than the roughly 2s discovery phase.
 
-The initial checks query `version.bind. TXT CH` for self-reported version strings and compare non-recursive and recursive A queries for `www.example.com.`. Supply `-recursion-name name` multiple times to test your own external names. Use names outside the target's authoritative zones; a controlled, previously uncached name gives stronger evidence. RA flags, authoritative answers, and cached answers alone do not establish public recursion. Reports describe behavior from this scanner's address, not access from every client.
+`-test-version` queries `version.bind. TXT CH` for self-reported version strings. Repeat `-test-recursion name` to compare non-recursive and recursive A queries for each supplied external name; no implicit recursion test is performed. Use names outside the target's authoritative zones; a controlled, previously uncached name gives stronger evidence. RA flags, authoritative answers, and cached answers alone do not establish public recursion. Reports describe behavior from this scanner's address, not access from every client.
 
 ```sh
-find-nameservers -json -recursion-name probe.your-domain.example 192.0.2.0/24
+find-nameservers -json -test-version -test-recursion probe.your-domain.example 192.0.2.0/24
 find-nameservers -discover-only 192.0.2.0/24
 ```
 
-`-json` outputs a JSON array with an address and independent check results, including statuses, evidence, and returned version strings. Human-readable reports are the default. `-discover-only` emits one address per line and skips every capability check; it cannot be combined with `-json`. Benchmarks explicitly select this discovery-only mode. Timeouts and inconclusive answers are reported separately from refusals.
+`-json` outputs a JSON array with an address and independent check results, including statuses, evidence, and returned version strings. Selected tests produce human-readable reports by default. With no tests, `-json` produces address records with empty check lists. `-discover-only` emits one address per line and skips every capability check; it cannot be combined with `-json` or `-test-*` options. Benchmarks explicitly select this discovery-only mode. Timeouts and inconclusive answers are reported separately from refusals.
+
+### Authority
+
+Repeat `-test-authority domain` to ask each discovered server a non-recursive SOA question for each domain. A validated AA=1 answer with NOERROR or NXDOMAIN is reported as `observed` authority for that query. AA=0 is `not-authoritative`; cached SOAs and referrals do not establish authority. Refusals, timeouts, and errors keep separate outcomes. JSON retains AA/RCODE observations and SOA records from answer/authority sections.
+
+An authoritative negative response can contain a parent zone's SOA. This establishes an authoritative answer about the queried name; it does not establish that the name is itself a zone apex.
+
+```sh
+find-nameservers -test-authority example.com -test-authority example.net -test-version 192.0.2.0/24
+```
