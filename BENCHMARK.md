@@ -686,3 +686,138 @@ Run 3 discovered addresses:
 ```
 
 Homelab validation limitation: this migrated host has no interface or route into the homelab; route inspection sends `192.168.53.1` through the public PPP default gateway. The fixed homelab benchmark was not run here. No failed connectivity or empty discovery is reported as a homelab baseline. The historical homelab records above are retained.
+
+## Inspection stack discovery benchmark — 2026-10-19T00:46:06+00:00
+
+- Source revision: `c8f0648366cb08cc2123323e341816b4ade2f918` (committed before measurement)
+- Environment: `Linux-7.0.0-38-generic-x86_64-with-glibc2.43` / `x86_64`
+- Go: `go version go1.27.1 linux/amd64`
+- CPU: Intel(R) N150
+- Command: `find-nameservers -discover-only 216.40.47.0/24 64.98.148.0/24`
+- Query: root NS, RD=0; rate 0, retry gap 50ms, three attempts, final grace 2s. Three sequential scans of 512 addresses; build excluded.
+- Homelab unavailable: this migrated host has no homelab interface/route; its public PPP default route handles those private addresses. The fixed homelab runner was not run. No empty result is treated as a baseline.
+
+| Run | Elapsed (s) | DNS addresses |
+| --- | ---: | ---: |
+| 1 | 2.109 | 34 |
+| 2 | 2.110 | 34 |
+| 3 | 2.110 | 34 |
+
+Median elapsed: **2.110s**. Discovery sets identical across runs: True. Previous routed A/RD=1 discovery found 34 addresses at 2.110s; this query change can affect coverage and should not be mistaken for a timing-only change.
+
+Run 1 discovered addresses:
+
+```text
+64.98.148.11
+64.98.148.12
+64.98.148.13
+64.98.148.14
+64.98.148.16
+64.98.148.17
+64.98.148.18
+64.98.148.19
+64.98.148.20
+64.98.148.121
+64.98.148.122
+64.98.148.123
+64.98.148.137
+64.98.148.138
+64.98.148.139
+64.98.148.145
+64.98.148.146
+64.98.148.147
+64.98.148.153
+64.98.148.161
+216.40.47.18
+216.40.47.19
+216.40.47.26
+216.40.47.80
+216.40.47.90
+216.40.47.201
+216.40.47.202
+216.40.47.209
+216.40.47.210
+216.40.47.225
+216.40.47.233
+216.40.47.234
+216.40.47.235
+216.40.47.236
+```
+
+Run 2 discovered addresses:
+
+```text
+64.98.148.11
+64.98.148.12
+64.98.148.13
+64.98.148.14
+64.98.148.16
+64.98.148.17
+64.98.148.18
+64.98.148.19
+64.98.148.20
+64.98.148.121
+64.98.148.122
+64.98.148.123
+64.98.148.137
+64.98.148.138
+64.98.148.139
+64.98.148.145
+64.98.148.146
+64.98.148.147
+64.98.148.153
+64.98.148.161
+216.40.47.18
+216.40.47.19
+216.40.47.26
+216.40.47.80
+216.40.47.90
+216.40.47.201
+216.40.47.202
+216.40.47.209
+216.40.47.210
+216.40.47.225
+216.40.47.233
+216.40.47.234
+216.40.47.235
+216.40.47.236
+```
+
+Run 3 discovered addresses:
+
+```text
+64.98.148.11
+64.98.148.12
+64.98.148.13
+64.98.148.14
+64.98.148.16
+64.98.148.17
+64.98.148.18
+64.98.148.19
+64.98.148.20
+64.98.148.121
+64.98.148.122
+64.98.148.123
+64.98.148.137
+64.98.148.138
+64.98.148.139
+64.98.148.145
+64.98.148.146
+64.98.148.147
+64.98.148.153
+64.98.148.161
+216.40.47.18
+216.40.47.19
+216.40.47.26
+216.40.47.80
+216.40.47.90
+216.40.47.201
+216.40.47.202
+216.40.47.209
+216.40.47.210
+216.40.47.225
+216.40.47.233
+216.40.47.234
+216.40.47.235
+216.40.47.236
+```
