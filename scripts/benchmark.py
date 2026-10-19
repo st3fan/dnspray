@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build once, measure three homelab scans, and append a Markdown record."""
 
+import argparse
 import datetime
 import ipaddress
 import os
@@ -14,7 +15,6 @@ import time
 
 ROOT = Path(__file__).resolve().parent.parent
 PREFIXES = ("192.168.0.0/24", "192.168.53.0/24")
-COMMAND = ("find-nameservers", *PREFIXES)
 ADDRESSES = sum(ipaddress.ip_network(prefix).num_addresses for prefix in PREFIXES)
 RUNS = 3
 
@@ -34,6 +34,13 @@ def cpu_model():
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--rate", type=int, default=0, help="packets/second; 0 disables pacing")
+    parser.add_argument("--retry-gap", default="50ms", help="Go duration, e.g. 500ms or 1s")
+    parser.add_argument("--timeout", type=float, default=2, help="seconds to listen after final send")
+    args = parser.parse_args()
+    flags = ("-rate", str(args.rate), "-retry-gap", args.retry_gap, "-t", str(args.timeout))
+    command = ("find-nameservers", *flags, *PREFIXES)
     revision = output("git", "rev-parse", "HEAD")
     # The results file changes with every run; it does not affect the scanner.
     dirty = output("git", "status", "--porcelain", "--untracked-files=normal",
@@ -44,8 +51,8 @@ def main():
         f"- Go: `{output('go', 'version')}`",
         f"- OS/architecture: `{platform.platform()}` / `{platform.machine()}`",
         f"- CPU: {cpu_model()} ({os.cpu_count()} logical CPUs)",
-        f"- Command: `{' '.join(COMMAND)}`",
-        "- Settings: hostname `www.example.com`, concurrency 32, timeout 2s; "
+        f"- Command: `{' '.join(command)}`",
+        "- Settings: hostname `www.example.com`, 3 attempts per address, batch size 1024; send rate, minimum retry gap, and final reply grace as specified in the command; "
         "512 addresses; three sequential runs; build time excluded.",
     ]
     if dirty:
@@ -57,9 +64,9 @@ def main():
         print("Building scanner (excluded from timing)...", flush=True)
         subprocess.run(["go", "build", "-o", binary, "."], cwd=ROOT, check=True)
         for index in range(1, RUNS + 1):
-            print(f"Run {index}/{RUNS}: {' '.join(COMMAND)}", flush=True)
+            print(f"Run {index}/{RUNS}: {' '.join(command)}", flush=True)
             start = time.perf_counter()
-            run = subprocess.run([binary, *PREFIXES], cwd=ROOT, text=True,
+            run = subprocess.run([binary, *flags, *PREFIXES], cwd=ROOT, text=True,
                                  capture_output=True, check=True, timeout=120)
             elapsed = time.perf_counter() - start
             servers = set()
@@ -103,4 +110,6 @@ if __name__ == "__main__":
     try:
         main()
     except (OSError, ValueError, subprocess.SubprocessError) as error:
+        if isinstance(error, subprocess.CalledProcessError) and error.stderr:
+            print(error.stderr, file=sys.stderr, end="")
         sys.exit(f"Benchmark failed; no results appended: {error}")

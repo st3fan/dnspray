@@ -5,30 +5,34 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"net"
+	"math"
 	"net/netip"
 	"os"
 	"os/signal"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/miekg/dns"
 )
 
-const queryTimeout = 2 * time.Second
-
 func main() {
 	host := flag.String("h", "www.example.com", "hostname to query")
-	concurrency := flag.Int("c", 32, "maximum number of concurrent queries")
+	timeout := flag.Float64("t", 2, "seconds to listen after the final request")
+	rate := flag.Int("rate", defaultRate, "maximum packets per second (0 disables pacing)")
+	gap := flag.Duration("retry-gap", defaultRetryGap, "minimum delay between attempts to the same address")
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [-h hostname] [-c N] CIDR-or-IP [CIDR-or-IP ...]\n", os.Args[0])
+		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [-h hostname] [-t seconds] [-rate packets/s] [-retry-gap duration] CIDR-or-IP [CIDR-or-IP ...]\n", os.Args[0])
 		flag.PrintDefaults()
 	}
 	flag.Parse()
 
-	if *concurrency < 1 {
-		fmt.Fprintln(os.Stderr, "-c must be at least 1")
+	if math.IsNaN(*timeout) || math.IsInf(*timeout, 0) || *timeout <= 0 || *timeout >= float64(math.MaxInt64)/float64(time.Second) || time.Duration(*timeout*float64(time.Second)) <= 0 {
+		fmt.Fprintln(os.Stderr, "-t must be a positive, representable number of seconds")
+		os.Exit(2)
+	}
+	opts := scanOptions{timeout: time.Duration(*timeout * float64(time.Second)), rate: *rate, retryGap: *gap}
+	if err := opts.validate(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
 	if flag.NArg() == 0 {
@@ -49,7 +53,10 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	scan(ctx, contained, question, *concurrency)
+	if err := scan(ctx, contained, question, opts, os.Stdout); err != nil && !errors.Is(err, context.Canceled) {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 }
 
 func parsePrefixes(args []string) ([]netip.Prefix, error) {
@@ -87,69 +94,6 @@ func makeQuestion(host string) (*dns.Msg, error) {
 		}
 	}
 	return new(dns.Msg).SetQuestion(dns.Fqdn(host), dns.TypeA), nil
-}
-
-func scan(ctx context.Context, prefixes []netip.Prefix, question *dns.Msg, concurrency int) {
-	jobs := make(chan netip.Addr, concurrency)
-	results := make(chan netip.Addr, concurrency)
-	var workers sync.WaitGroup
-	workers.Add(concurrency)
-	for range concurrency {
-		go func() {
-			defer workers.Done()
-			for addr := range jobs {
-				if ctx.Err() != nil {
-					return
-				}
-				if probe(ctx, addr, "53", question) {
-					results <- addr
-				}
-			}
-		}()
-	}
-
-	go func() {
-		defer close(jobs)
-		for _, prefix := range prefixes {
-			for addr := prefix.Addr(); prefix.Contains(addr); addr = addr.Next() {
-				select {
-				case jobs <- addr:
-				case <-ctx.Done():
-					return
-				}
-			}
-		}
-	}()
-	go func() {
-		workers.Wait()
-		close(results)
-	}()
-	for addr := range results {
-		fmt.Println(addr)
-	}
-}
-
-// probe reports a DNS server when it returns a response for our exact question.
-// Any DNS response code counts, including NXDOMAIN and REFUSED.
-func probe(ctx context.Context, addr netip.Addr, port string, question *dns.Msg) bool {
-	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
-	defer cancel()
-
-	client := &dns.Client{Net: "udp", Timeout: queryTimeout, UDPSize: 4096}
-	conn, err := client.DialContext(ctx, net.JoinHostPort(addr.String(), port))
-	if err != nil {
-		return false
-	}
-	defer conn.Close()
-	// ExchangeWithConnContext applies deadlines but does not interrupt reads
-	// when the context is canceled before its deadline.
-	stop := context.AfterFunc(ctx, func() { conn.Close() })
-	defer stop()
-
-	query := question.Copy()
-	query.Id = dns.Id()
-	response, _, err := client.ExchangeWithConnContext(ctx, query, conn)
-	return err == nil && validResponse(query, response)
 }
 
 func validResponse(query, response *dns.Msg) bool {
