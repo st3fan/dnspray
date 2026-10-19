@@ -28,7 +28,7 @@ func main() {
 	var tests testOptions
 	tests.register(flag.CommandLine)
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [options] CIDR-or-IP [CIDR-or-IP ...]\n", os.Args[0])
+		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [options] AS-number-or-CIDR-or-IP [target ...]\n", os.Args[0])
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -71,14 +71,25 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
-	contained, err := parsePrefixes(flag.Args())
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(2)
-	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	var ripe *ripeClient
+	contained, err := resolveTargets(ctx, flag.Args(), func(ctx context.Context, asn string) ([]netip.Prefix, error) {
+		if ripe == nil {
+			ripe = newRIPEClient(os.Stderr)
+		}
+		return ripe.prefixes(ctx, asn)
+	})
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return
+		}
+		fmt.Fprintln(os.Stderr, err)
+		if errors.Is(err, errTargetSyntax) {
+			os.Exit(2)
+		}
+		os.Exit(1)
+	}
 	output := io.Writer(io.Discard)
 	if onlyAddresses {
 		output = os.Stdout
