@@ -56,6 +56,10 @@ func main() {
 		fmt.Fprintln(os.Stderr, "-json cannot be combined with -discover-only")
 		os.Exit(2)
 	}
+	if err := tests.validate(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
 	checks := tests.checks()
 	if *discoverOnly && len(checks) > 0 {
 		fmt.Fprintln(os.Stderr, "-discover-only cannot be combined with -test-* options")

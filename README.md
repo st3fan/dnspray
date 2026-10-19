@@ -54,3 +54,15 @@ An authoritative negative response can contain a parent zone's SOA. This establi
 ```sh
 find-nameservers -test-authority example.com -test-authority example.net -test-version 192.0.2.0/24
 ```
+
+### Zone transfers
+
+Specify `-test-axfr` once for each zone apex to test. Every discovered server is tested against every supplied zone, with a separate status for each pair:
+
+```sh
+find-nameservers -test-axfr example.com -test-axfr example.net 192.0.2.0/24
+```
+
+No AXFR check is scheduled unless `-test-axfr` is supplied. Zones are not guessed or enumerated: a refusal for one zone says nothing about transfer permissions for other zones.
+
+AXFR uses TCP and shares the `-check-timeout` per-check deadline. A transfer counts as `observed` only after matching opening and closing SOA records. Transfers are streamed and counted; zone contents are not retained. Each transfer is limited to 10,000 records (`-axfr-max-records`, including both SOAs) and 1MiB of DNS TCP data (`-axfr-max-bytes`, including length framing). Limits produce `limited`, interrupted transfers produce `partial`, and no-response deadlines produce `timeout`, rather than claiming AXFR is unavailable. JSON includes record and byte counts. A successful transfer establishes permission from this scanner for that zone at that time.
