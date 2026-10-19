@@ -108,3 +108,7 @@ find-nameservers -test-axfr example.com -test-axfr example.net 192.0.2.0/24
 No AXFR check is scheduled unless `-test-axfr` is supplied. Zones are not guessed or enumerated: a refusal for one zone says nothing about transfer permissions for other zones.
 
 AXFR uses TCP and shares the `-check-timeout` per-check deadline. A transfer counts as `observed` only after matching opening and closing SOA records. Transfers are streamed and counted; zone contents are not retained. Each transfer is limited to 10,000 records (`-axfr-max-records`, including both SOAs) and 1MiB of DNS TCP data (`-axfr-max-bytes`, including length framing). Limits produce `limited`, interrupted transfers produce `partial`, and no-response deadlines produce `timeout`, rather than claiming AXFR is unavailable. JSON includes record and byte counts. A successful transfer establishes permission from this scanner for that zone at that time.
+
+### TCP
+
+`-test-tcp` sends a non-recursive root NS query directly over TCP. Any matching, complete DNS response establishes TCP support (`observed`), including REFUSED or SERVFAIL; JSON retains the RCODE separately. Connection errors, malformed/mismatched responses and timeouts retain separate outcomes and do not prove TCP is unsupported. The check shares the inspection deadline and cancellation controls.
