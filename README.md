@@ -1,4 +1,4 @@
-# find-nameservers
+# dnspray
 
 Scan every address in IPv4 or IPv6 CIDRs, or in an ASN’s originated IPv4 prefixes, for a DNS server on UDP port 53. Individual IP addresses are also accepted. Each responding address is collected for capability inspection. Use `-discover-only` for one address per line.
 
@@ -7,15 +7,15 @@ Scan every address in IPv4 or IPv6 CIDRs, or in an ASN’s originated IPv4 prefi
 With Go 1.27.1 or newer:
 
 ```sh
-go install github.com/st3fan/find-nameservers@latest
+go install github.com/st3fan/dnspray@latest
 ```
 
-The `find-nameservers` executable is installed in `GOBIN`, or in `$(go env GOPATH)/bin` if `GOBIN` is unset. Add that directory to your `PATH` to run it by name.
+The `dnspray` executable is installed in `GOBIN`, or in `$(go env GOPATH)/bin` if `GOBIN` is unset. Add that directory to your `PATH` to run it by name.
 
 ## Usage
 
 ```sh
-find-nameservers -h example.org -t 2 192.0.2.0/24 2001:db8::1
+dnspray -h example.org -t 2 192.0.2.0/24 2001:db8::1
 ```
 
 Discovery defaults to a non-recursive root NS query (`. NS IN`, RD=0). `-h` overrides it with a non-recursive A query. The scanner sends three UDP queries per address with at least 50ms between attempts by default, using batches of up to 1,024 addresses. Replies are collected concurrently on one shared socket per address family. Each responding address is recorded once. Any valid matching DNS response counts, including `NXDOMAIN` or `REFUSED`.
@@ -37,8 +37,8 @@ The implementation uses [`github.com/miekg/dns`](https://github.com/miekg/dns) t
 Progress and operational diagnostics use Go's `log` package on stderr with timestamps. Stdout contains only findings: IP addresses, human-readable inspection reports, or JSON. Redirect them independently:
 
 ```sh
-find-nameservers -json AS64496 > findings.json 2> scan.log
-find-nameservers -silent -json AS64496 > findings.json
+dnspray -json AS64496 > findings.json 2> scan.log
+dnspray -silent -json AS64496 > findings.json
 ```
 
 Logs distinguish RIPE HTTP fetches from cache hits and reused ASN resolutions. They list every validated IPv4 origin prefix found for each ASN, identify prefixes covered by a broader final prefix, and list the prefixes actually used. Once the complete scope is resolved, the scan-start summary reports exact unique-address and prefix counts for IPv4 and IPv6. No scan-start summary is printed after a resolution failure.
@@ -50,15 +50,15 @@ Logs distinguish RIPE HTTP fetches from cache hits and reused ASN resolutions. T
 Use `AS` followed by a decimal autonomous system number as a positional target. ASN targets can be mixed with IP addresses, CIDRs and other ASNs; lowercase `as` and leading zeros are normalized. These examples use documentation-only ASNs and prefixes:
 
 ```sh
-find-nameservers -discover-only AS64496
-find-nameservers -test-version -json AS64496 AS64497 192.0.2.0/24
+dnspray -discover-only AS64496
+dnspray -test-version -json AS64496 AS64497 192.0.2.0/24
 ```
 
 ASN expansion uses [RIPEstat RIS Prefixes](https://stat.ripe.net/docs/data-api/api-endpoints/ris-prefixes.html) with `types=o`, `af=v4` and `list_prefixes=true`. Only originated IPv4 prefixes are included, not transited routes or a historical union of announcements. RIS supplies its latest available routing snapshot, which may lag current routing and is not a complete inventory. Explicit IPv6 IP/CIDR targets remain supported; ASN-derived IPv6 prefixes are excluded.
 
 All target syntax is validated and all ASN lookups finish before DNS discovery starts. An unsuccessful/malformed API response, mismatched ASN, invalid prefix or missing IPv4 origin-prefix array fails the command before scanning; a stale cache is never silently substituted after an API failure. A successful empty IPv4 origin-prefix array is cached and the ASN is logged as skipped; other targets are still scanned. If no scannable targets remain, the command exits with an error before discovery. IP/CIDR-only commands do not access RIPE. Requests have a 15s deadline and an 8MiB response-body limit; Ctrl+C also cancels lookup requests. Existing discovery and capability-check settings apply to the expanded scope.
 
-Each canonical ASN is cached at `~/.cache/find-nameservers/ripe/AS<number>.json`, with the validated API response and freshness metadata in the same JSON file. The cache uses the home directory path shown here, independently of `XDG_CACHE_HOME`. Entries are replaced atomically with owner-only directory/file permissions. A cache I/O failure is logged on stderr unless `-silent` is set; a valid API response can still be scanned if writing the cache fails.
+Each canonical ASN is cached at `~/.cache/dnspray/ripe/AS<number>.json`, with the validated API response and freshness metadata in the same JSON file. The cache uses the home directory path shown here, independently of `XDG_CACHE_HOME`. Entries are replaced atomically with owner-only directory/file permissions. A cache I/O failure is logged on stderr unless `-silent` is set; a valid API response can still be scanned if writing the cache fails.
 
 Freshness defaults to eight hours when the API supplies no freshness lifetime. `Cache-Control: max-age` takes precedence over `Expires`, and explicit lifetimes can be shorter or longer than eight hours. `Date`, `Age` and request delay reduce the remaining lifetime. Invalid/conflicting freshness is treated as stale. `no-cache` forces a fresh request before reuse, and `no-store` prevents persistence/reuse of the response. `s-maxage` applies to shared caches and does not override this private cache. Expired, corrupt or incompatible entries are refreshed with a full request; reading an entry never extends its lifetime.
 
@@ -69,8 +69,8 @@ Capability checks are opt-in. Without `-test-*` options, print discovered addres
 `-test-version` queries `version.bind. TXT CH` for self-reported version strings. Repeat `-test-recursion name` to compare non-recursive and recursive A queries for each supplied external name; no implicit recursion test is performed. Use names outside the target's authoritative zones; a controlled, previously uncached name gives stronger evidence. RA flags, authoritative answers, and cached answers alone do not establish public recursion. Reports describe behavior from this scanner's address, not access from every client.
 
 ```sh
-find-nameservers -json -test-version -test-recursion probe.your-domain.example 192.0.2.0/24
-find-nameservers -discover-only 192.0.2.0/24
+dnspray -json -test-version -test-recursion probe.your-domain.example 192.0.2.0/24
+dnspray -discover-only 192.0.2.0/24
 ```
 
 `-json` outputs a JSON array with an address and independent check results, including statuses, evidence, and returned version strings. Selected tests produce human-readable reports by default. With no tests, `-json` produces address records with empty check lists. `-discover-only` emits one address per line and skips every capability check; it cannot be combined with `-json` or `-test-*` options. Benchmarks explicitly select this discovery-only mode. Timeouts and inconclusive answers are reported separately from refusals.
@@ -94,7 +94,7 @@ Repeat `-test-authority domain` to ask each discovered server a non-recursive SO
 An authoritative negative response can contain a parent zone's SOA. This establishes an authoritative answer about the queried name; it does not establish that the name is itself a zone apex.
 
 ```sh
-find-nameservers -test-authority example.com -test-authority example.net -test-version 192.0.2.0/24
+dnspray -test-authority example.com -test-authority example.net -test-version 192.0.2.0/24
 ```
 
 ### Zone transfers
@@ -102,7 +102,7 @@ find-nameservers -test-authority example.com -test-authority example.net -test-v
 Specify `-test-axfr` once for each zone apex to test. Every discovered server is tested against every supplied zone, with a separate status for each pair:
 
 ```sh
-find-nameservers -test-axfr example.com -test-axfr example.net 192.0.2.0/24
+dnspray -test-axfr example.com -test-axfr example.net 192.0.2.0/24
 ```
 
 No AXFR check is scheduled unless `-test-axfr` is supplied. Zones are not guessed or enumerated: a refusal for one zone says nothing about transfer permissions for other zones.
@@ -130,5 +130,5 @@ This is a behavioral comparison from the scanner's address, not a cryptographic 
 A valid response without NSID is inconclusive because disclosure can depend on policy. Refusal, EDNS rejection, timeout and malformed responses retain separate outcomes. JSON includes response RCODE and advertised EDNS version, UDP payload size and DO flag. Identifiers are self-reported and need not be hostnames, stable or unique.
 
 ```sh
-find-nameservers -test-tcp -test-dnssec -test-nsid -json 192.0.2.0/24
+dnspray -test-tcp -test-dnssec -test-nsid -json 192.0.2.0/24
 ```

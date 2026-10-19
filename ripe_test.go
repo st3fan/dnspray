@@ -315,7 +315,7 @@ func TestRIPECacheLocation(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(t.TempDir(), "other"))
 	c := newRIPEClient(log.New(io.Discard, "", 0))
-	if c.cacheDir != filepath.Join(home, ".cache", "find-nameservers", "ripe") {
+	if c.cacheDir != filepath.Join(home, ".cache", "dnspray", "ripe") {
 		t.Fatal(c.cacheDir)
 	}
 }

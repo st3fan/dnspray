@@ -40,7 +40,7 @@ def main():
     parser.add_argument("--timeout", type=float, default=2, help="seconds to listen after final send")
     args = parser.parse_args()
     flags = ("-discover-only", "-rate", str(args.rate), "-retry-gap", args.retry_gap, "-t", str(args.timeout))
-    command = ("find-nameservers", *flags, *PREFIXES)
+    command = ("dnspray", *flags, *PREFIXES)
     revision = output("git", "rev-parse", "HEAD")
     # The results file changes with every run; it does not affect the scanner.
     dirty = output("git", "status", "--porcelain", "--untracked-files=normal",
@@ -59,8 +59,8 @@ def main():
         environment.append("- Changed source/runner paths:\n\n```text\n" + dirty + "\n```")
 
     results = []
-    with tempfile.TemporaryDirectory(prefix="find-nameservers-benchmark-") as temp:
-        binary = str(Path(temp) / "find-nameservers")
+    with tempfile.TemporaryDirectory(prefix="dnspray-benchmark-") as temp:
+        binary = str(Path(temp) / "dnspray")
         print("Building scanner (excluded from timing)...", flush=True)
         subprocess.run(["go", "build", "-o", binary, "."], cwd=ROOT, check=True)
         for index in range(1, RUNS + 1):

@@ -1,5 +1,7 @@
 # Project
 
+The project and command are named `dnspray`.
+
 This is a reconnaissance tool for finding DNS servers within a supplied list of network prefixes.
 
 The tool is written in Go.
@@ -18,7 +20,7 @@ Use the repository's [gh-stack skill](.agents/skills/gh-stack/SKILL.md) to manag
 
 Run `python3 scripts/benchmark.py` from the homelab before requesting review of every pull request. Record the tested revision, environment, command, elapsed time, and discovered DNS servers in the local, ignored `BENCHMARK.md` so results can be compared across changes.
 
-The user authorizes running `find-nameservers 192.168.0.0/24 192.168.53.0/24` for this benchmark. The runner remains scoped to those two homelab prefixes. Obtain user authorization before scanning any other targets.
+The user authorizes running `dnspray 192.168.0.0/24 192.168.53.0/24` for this benchmark. The runner remains scoped to those two homelab prefixes. Obtain user authorization before scanning any other targets.
 
 Keep benchmark records and test targets private. Never commit benchmark results or publish target prefixes, discovered addresses, measurements, or diagnostic captures in issues, PR descriptions, or other public project content. `BENCHMARK.md` (and alternate spelling `BENCHMARKS.md`) must remain ignored and untracked. Preserve historical entries locally. Commit source changes before measuring; no results commit is needed. Public PR descriptions may state that validation passed or that homelab access was unavailable, without publishing measurements or targets. If homelab access is unavailable, record that limitation locally; do not treat failed connectivity as a performance baseline.
 
