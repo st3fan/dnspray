@@ -108,3 +108,27 @@ find-nameservers -test-axfr example.com -test-axfr example.net 192.0.2.0/24
 No AXFR check is scheduled unless `-test-axfr` is supplied. Zones are not guessed or enumerated: a refusal for one zone says nothing about transfer permissions for other zones.
 
 AXFR uses TCP and shares the `-check-timeout` per-check deadline. A transfer counts as `observed` only after matching opening and closing SOA records. Transfers are streamed and counted; zone contents are not retained. Each transfer is limited to 10,000 records (`-axfr-max-records`, including both SOAs) and 1MiB of DNS TCP data (`-axfr-max-bytes`, including length framing). Limits produce `limited`, interrupted transfers produce `partial`, and no-response deadlines produce `timeout`, rather than claiming AXFR is unavailable. JSON includes record and byte counts. A successful transfer establishes permission from this scanner for that zone at that time.
+
+### TCP
+
+`-test-tcp` sends a non-recursive root NS query directly over TCP. Any matching, complete DNS response establishes TCP support (`observed`), including REFUSED or SERVFAIL; JSON retains the RCODE separately. Connection errors, malformed/mismatched responses and timeouts retain separate outcomes and do not prove TCP is unsupported. The check shares the inspection deadline and cancellation controls.
+
+### DNSSEC validation
+
+`-test-dnssec` probes recursive validation using three A queries: a valid signed name with CD=0, a known bogus signed name with CD=0, and the bogus name with CD=1. All request recursion and DNSSEC records (DO=1). The check divides its remaining deadline among the remaining probes, so a slow probe leaves time for the controls.
+
+Defaults are `good-a.test.dnssec-tools.org.` and `badsign-a.test.dnssec-tools.org.`, documented by the [DNSSEC-Tools test zone](https://dnssec-tools.org/testzone/). Override them with `-dnssec-valid-name name` and `-dnssec-bogus-name name` for controlled test records. These settings select names only; `-test-dnssec` enables the check.
+
+An `observed` result requires an authenticated positive valid-name answer (AD=1), bogus-name SERVFAIL, and an unauthenticated positive bogus answer with checking disabled. Responses must advertise recursion and be non-authoritative. A successful unauthenticated bogus answer with checking enabled produces `not-observed` only when the other controls succeed. SERVFAIL alone, missing AD, unavailable controls, refusal and timeouts cannot establish validation. Unexpected RD/CD flags prevent a comparison. JSON retains probe flags, bounded answer/authority evidence, errors and [Extended DNS Errors](https://www.rfc-editor.org/rfc/rfc8914.html); text reports include flags and EDEs.
+
+This is a behavioral comparison from the scanner's address, not a cryptographic audit or proof of public recursion. Cached, synthesized or policy-filtered responses and changes to public test records can affect results. Maintain known valid/bogus records and use a longer `-check-timeout` when needed.
+
+### Name Server Identifier
+
+`-test-nsid` requests an identifier with an empty [EDNS NSID option](https://www.rfc-editor.org/rfc/rfc5001.html) in a non-recursive root NS query. An `observed` result includes `nsid_hex` in JSON and a hexadecimal identifier in text output. The identifier is opaque binary data: hexadecimal preserves every byte, including control characters and invalid UTF-8. An empty returned identifier is represented as `"nsid_hex": ""`; an absent option omits the field.
+
+A valid response without NSID is inconclusive because disclosure can depend on policy. Refusal, EDNS rejection, timeout and malformed responses retain separate outcomes. JSON includes response RCODE and advertised EDNS version, UDP payload size and DO flag. Identifiers are self-reported and need not be hostnames, stable or unique.
+
+```sh
+find-nameservers -test-tcp -test-dnssec -test-nsid -json 192.0.2.0/24
+```
