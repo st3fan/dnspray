@@ -122,3 +122,13 @@ Defaults are `good-a.test.dnssec-tools.org.` and `badsign-a.test.dnssec-tools.or
 An `observed` result requires an authenticated positive valid-name answer (AD=1), bogus-name SERVFAIL, and an unauthenticated positive bogus answer with checking disabled. Responses must advertise recursion and be non-authoritative. A successful unauthenticated bogus answer with checking enabled produces `not-observed` only when the other controls succeed. SERVFAIL alone, missing AD, unavailable controls, refusal and timeouts cannot establish validation. Unexpected RD/CD flags prevent a comparison. JSON retains probe flags, bounded answer/authority evidence, errors and [Extended DNS Errors](https://www.rfc-editor.org/rfc/rfc8914.html); text reports include flags and EDEs.
 
 This is a behavioral comparison from the scanner's address, not a cryptographic audit or proof of public recursion. Cached, synthesized or policy-filtered responses and changes to public test records can affect results. Maintain known valid/bogus records and use a longer `-check-timeout` when needed.
+
+### Name Server Identifier
+
+`-test-nsid` requests an identifier with an empty [EDNS NSID option](https://www.rfc-editor.org/rfc/rfc5001.html) in a non-recursive root NS query. An `observed` result includes `nsid_hex` in JSON and a hexadecimal identifier in text output. The identifier is opaque binary data: hexadecimal preserves every byte, including control characters and invalid UTF-8. An empty returned identifier is represented as `"nsid_hex": ""`; an absent option omits the field.
+
+A valid response without NSID is inconclusive because disclosure can depend on policy. Refusal, EDNS rejection, timeout and malformed responses retain separate outcomes. JSON includes response RCODE and advertised EDNS version, UDP payload size and DO flag. Identifiers are self-reported and need not be hostnames, stable or unique.
+
+```sh
+find-nameservers -test-tcp -test-dnssec -test-nsid -json 192.0.2.0/24
+```

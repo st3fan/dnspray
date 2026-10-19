@@ -26,6 +26,7 @@ type extendedDNSError struct {
 }
 
 type observation struct {
+	EDNS             *ednsObservation   `json:"edns,omitempty"`
 	Authenticated    *bool              `json:"ad,omitempty"`
 	CheckingDisabled *bool              `json:"cd,omitempty"`
 	ExtendedErrors   []extendedDNSError `json:"extended_errors,omitempty"`
@@ -47,6 +48,7 @@ type observation struct {
 }
 
 type checkResult struct {
+	NSIDHex             *string       `json:"nsid_hex,omitempty"`
 	RecursionAdvertised *bool         `json:"recursion_advertised,omitempty"`
 	RecursionObserved   *bool         `json:"recursion_observed,omitempty"`
 	Check               string        `json:"check"`
@@ -252,6 +254,11 @@ func writeReports(output io.Writer, reports []serverReport, jsonOutput bool) err
 			}
 			if _, err := fmt.Fprintln(output); err != nil {
 				return err
+			}
+			if result.NSIDHex != nil {
+				if _, err := fmt.Fprintf(output, "    NSID hex: %q\n", *result.NSIDHex); err != nil {
+					return err
+				}
 			}
 			if result.Check == "dnssec" {
 				if err := writeDNSSECEvidence(output, result); err != nil {

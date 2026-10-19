@@ -15,6 +15,7 @@ type testOptions struct {
 	version     bool
 	tcp         bool
 	dnssec      bool
+	nsid        bool
 	dnssecValid string
 	dnssecBogus string
 	authorities namesFlag
@@ -25,6 +26,7 @@ func (o *testOptions) register(fs *flag.FlagSet) {
 	fs.Var(&o.axfr, "test-axfr", "zone apex to test for TCP AXFR (repeatable)")
 	fs.IntVar(&o.axfrRecords, "axfr-max-records", defaultAXFRRecords, "maximum records per AXFR check, including SOAs")
 	fs.IntVar(&o.axfrBytes, "axfr-max-bytes", defaultAXFRBytes, "maximum DNS TCP bytes per AXFR check, including framing")
+	fs.BoolVar(&o.nsid, "test-nsid", false, "request the EDNS Name Server Identifier")
 	fs.BoolVar(&o.dnssec, "test-dnssec", false, "probe recursive DNSSEC validation")
 	fs.StringVar(&o.dnssecValid, "dnssec-valid-name", "good-a.test.dnssec-tools.org.", "known valid signed A name for -test-dnssec")
 	fs.StringVar(&o.dnssecBogus, "dnssec-bogus-name", "badsign-a.test.dnssec-tools.org.", "known bogus signed A name for -test-dnssec")
@@ -36,6 +38,9 @@ func (o *testOptions) register(fs *flag.FlagSet) {
 
 func (o testOptions) checks() []serverCheck {
 	var checks []serverCheck
+	if o.nsid {
+		checks = append(checks, nsidCheck{})
+	}
 	if o.dnssec {
 		checks = append(checks, dnssecCheck{valid: dns.Fqdn(o.dnssecValid), bogus: dns.Fqdn(o.dnssecBogus)})
 	}
