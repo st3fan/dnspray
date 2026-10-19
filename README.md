@@ -1,6 +1,6 @@
 # find-nameservers
 
-Scan every address in one or more IPv4 or IPv6 CIDRs for a DNS server on UDP port 53. Individual IP addresses are also accepted. Each responding address is printed on its own line.
+Scan every address in one or more IPv4 or IPv6 CIDRs for a DNS server on UDP port 53. Individual IP addresses are also accepted. Each responding address is collected for capability inspection. Use `-discover-only` for one address per line.
 
 ## Install
 
@@ -18,7 +18,7 @@ The `find-nameservers` executable is installed in `GOBIN`, or in `$(go env GOPAT
 find-nameservers -h example.org -t 2 192.0.2.0/24 2001:db8::1
 ```
 
-Discovery defaults to a non-recursive root NS query (`. NS IN`, RD=0). `-h` overrides it with a non-recursive A query. The scanner sends three UDP queries per address with at least 50ms between attempts by default, using batches of up to 1,024 addresses. Replies are collected concurrently on one shared socket per address family. Each responding address is printed once. Any valid matching DNS response counts, including `NXDOMAIN` or `REFUSED`.
+Discovery defaults to a non-recursive root NS query (`. NS IN`, RD=0). `-h` overrides it with a non-recursive A query. The scanner sends three UDP queries per address with at least 50ms between attempts by default, using batches of up to 1,024 addresses. Replies are collected concurrently on one shared socket per address family. Each responding address is recorded once. Any valid matching DNS response counts, including `NXDOMAIN` or `REFUSED`.
 
 The defaults are tuned for a gigabit connection: sending is unpaced (`-rate 0`), with a 50ms minimum retry gap and a 2s final listening period. For slower or lossy networks, try `-rate 100 -retry-gap 1s` and compare discovered addresses as well as runtime.
 
@@ -31,3 +31,16 @@ Sending and retry storage are bounded; remembered discoveries grow with the numb
 The implementation uses [`github.com/miekg/dns`](https://github.com/miekg/dns) to construct queries, exchange DNS messages over UDP, and parse responses.
 
 `-discover-only` explicitly selects discovery without capability inspection and preserves one-IP-per-line output for scripts and benchmarks. Discovered addresses are also collected once in a typed list for subsequent inspection.
+
+## Server inspection
+
+By default, discovery finishes first and then each discovered server is inspected. Inspection uses at most 8 concurrent server workers (`-check-workers`) and a 2s deadline per check (`-check-timeout`). Check failures are reported individually and never remove a discovered address. Detailed inspection can take longer than the roughly 2s discovery phase.
+
+The initial checks query `version.bind. TXT CH` for self-reported version strings and compare non-recursive and recursive A queries for `www.example.com.`. Supply `-recursion-name name` multiple times to test your own external names. Use names outside the target's authoritative zones; a controlled, previously uncached name gives stronger evidence. RA flags, authoritative answers, and cached answers alone do not establish public recursion. Reports describe behavior from this scanner's address, not access from every client.
+
+```sh
+find-nameservers -json -recursion-name probe.your-domain.example 192.0.2.0/24
+find-nameservers -discover-only 192.0.2.0/24
+```
+
+`-json` outputs a JSON array with an address and independent check results, including statuses, evidence, and returned version strings. Human-readable reports are the default. `-discover-only` emits one address per line and skips every capability check; it cannot be combined with `-json`. Benchmarks explicitly select this discovery-only mode. Timeouts and inconclusive answers are reported separately from refusals.

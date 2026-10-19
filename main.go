@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"math"
 	"net/netip"
 	"os"
@@ -20,9 +21,14 @@ func main() {
 	timeout := flag.Float64("t", 2, "seconds to listen after the final request")
 	rate := flag.Int("rate", defaultRate, "maximum packets per second (0 disables pacing)")
 	gap := flag.Duration("retry-gap", defaultRetryGap, "minimum delay between attempts to the same address")
-	flag.Bool("discover-only", false, "only discover responding DNS addresses")
+	discoverOnly := flag.Bool("discover-only", false, "only discover responding DNS addresses")
+	jsonOutput := flag.Bool("json", false, "write structured server reports as JSON")
+	checkWorkers := flag.Int("check-workers", 8, "maximum concurrent server inspections")
+	checkTimeout := flag.Duration("check-timeout", 2*time.Second, "deadline for each capability check")
+	var recursionNames namesFlag
+	flag.Var(&recursionNames, "recursion-name", "external A name for recursion checks (repeatable; default www.example.com)")
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [-h hostname] [-t seconds] [-rate packets/s] [-retry-gap duration] CIDR-or-IP [CIDR-or-IP ...]\n", os.Args[0])
+		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [options] CIDR-or-IP [CIDR-or-IP ...]\n", os.Args[0])
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -41,6 +47,18 @@ func main() {
 		os.Exit(2)
 	}
 
+	inspection := inspectionOptions{workers: *checkWorkers, timeout: *checkTimeout, port: 53}
+	if err := inspection.validate(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	if *discoverOnly && *jsonOutput {
+		fmt.Fprintln(os.Stderr, "-json cannot be combined with -discover-only")
+		os.Exit(2)
+	}
+	if len(recursionNames) == 0 {
+		recursionNames = namesFlag{"www.example.com."}
+	}
 	question, err := discoveryQuestion(*host)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -54,7 +72,23 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	if _, err := discover(ctx, contained, question, opts, os.Stdout); err != nil && !errors.Is(err, context.Canceled) {
+	output := io.Writer(io.Discard)
+	if *discoverOnly {
+		output = os.Stdout
+	}
+	found, err := discover(ctx, contained, question, opts, output)
+	if err == nil && !*discoverOnly {
+		checks := []serverCheck{versionCheck{}}
+		for _, name := range recursionNames {
+			checks = append(checks, recursionCheck{name: name})
+		}
+		var reports []serverReport
+		reports, err = inspectServers(ctx, found, checks, inspection)
+		if err == nil {
+			err = writeReports(os.Stdout, reports, *jsonOutput)
+		}
+	}
+	if err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
