@@ -62,7 +62,7 @@ func newRIPEClient(logger *log.Logger) *ripeClient {
 	} else if !filepath.IsAbs(home) {
 		c.warn("cache disabled: home directory is not absolute")
 	} else {
-		c.cacheDir = filepath.Join(home, ".cache", "find-nameservers", "ripe")
+		c.cacheDir = filepath.Join(home, ".cache", "dnspray", "ripe")
 	}
 	return c
 }

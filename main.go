@@ -30,7 +30,7 @@ func main() {
 }
 
 func runCLI(ctx context.Context, args []string, stdout, stderr io.Writer, services cliServices) int {
-	flags := flag.NewFlagSet("find-nameservers", flag.ContinueOnError)
+	flags := flag.NewFlagSet("dnspray", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	host := flags.String("h", "", "optional non-recursive A discovery query (default: root NS)")
 	timeout := flags.Float64("t", 2, "seconds to listen after the final request")

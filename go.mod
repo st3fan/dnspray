@@ -1,4 +1,4 @@
-module github.com/st3fan/find-nameservers
+module github.com/st3fan/dnspray
 
 go 1.27.1
 
