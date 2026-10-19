@@ -1,6 +1,6 @@
 # find-nameservers
 
-Scan every address in one or more IPv4 or IPv6 CIDRs for a DNS server on UDP port 53. Individual IP addresses are also accepted. Each responding address is collected for capability inspection. Use `-discover-only` for one address per line.
+Scan every address in IPv4 or IPv6 CIDRs, or in an ASN’s originated IPv4 prefixes, for a DNS server on UDP port 53. Individual IP addresses are also accepted. Each responding address is collected for capability inspection. Use `-discover-only` for one address per line.
 
 ## Install
 
@@ -26,11 +26,28 @@ The defaults are tuned for a gigabit connection: sending is unpaced (`-rate 0`),
 
 `-t` is a positive number of seconds (default 2) to keep listening **after the final request is sent**. Listening also runs throughout sending. Total runtime includes sending, retry delays, and this final grace period. Ctrl+C stops sending and listening. The former `-c` worker-concurrency flag has been removed for this experiment.
 
-Sending and retry storage are bounded; remembered discoveries grow with the number of responding addresses. Overlapping prefixes may cause additional probes, but duplicate replies produce only one output line. Send, receive, and output errors fail the scan visibly. High-speed UDP probing can lose packets, so compare discovered servers as well as elapsed time.
+Sending and retry storage are bounded; remembered discoveries grow with the number of responding addresses. Duplicate and contained target prefixes are removed before scanning, and duplicate replies produce only one output line. Send, receive, and output errors fail the scan visibly. High-speed UDP probing can lose packets, so compare discovered servers as well as elapsed time.
 
 The implementation uses [`github.com/miekg/dns`](https://github.com/miekg/dns) to construct queries, exchange DNS messages over UDP, and parse responses.
 
 `-discover-only` explicitly selects discovery without capability inspection and preserves one-IP-per-line output for scripts and benchmarks. Discovered addresses are also collected once in a typed list for subsequent inspection.
+
+## ASN targets and RIPE cache
+
+Use `AS` followed by a decimal autonomous system number as a positional target. ASN targets can be mixed with IP addresses, CIDRs and other ASNs; lowercase `as` and leading zeros are normalized. These examples use documentation-only ASNs and prefixes:
+
+```sh
+find-nameservers -discover-only AS64496
+find-nameservers -test-version -json AS64496 AS64497 192.0.2.0/24
+```
+
+ASN expansion uses [RIPEstat RIS Prefixes](https://stat.ripe.net/docs/data-api/api-endpoints/ris-prefixes.html) with `types=o`, `af=v4` and `list_prefixes=true`. Only originated IPv4 prefixes are included, not transited routes or a historical union of announcements. RIS supplies its latest available routing snapshot, which may lag current routing and is not a complete inventory. Explicit IPv6 IP/CIDR targets remain supported; ASN-derived IPv6 prefixes are excluded.
+
+All target syntax is validated and all ASN lookups finish before DNS discovery starts. An unsuccessful/malformed API response, mismatched ASN, invalid prefix or missing IPv4 scope fails the command before scanning; a stale cache is never silently substituted after an API failure. IP/CIDR-only commands do not access RIPE. Requests have a 15s deadline and an 8MiB response-body limit; Ctrl+C also cancels lookup requests. Existing discovery and capability-check settings apply to the expanded scope.
+
+Each canonical ASN is cached at `~/.cache/find-nameservers/ripe/AS<number>.json`, with the validated API response and freshness metadata in the same JSON file. The cache uses the home directory path shown here, independently of `XDG_CACHE_HOME`. Entries are replaced atomically with owner-only directory/file permissions. A cache I/O failure is reported on stderr; a valid API response can still be scanned if writing the cache fails.
+
+Freshness defaults to eight hours when the API supplies no freshness lifetime. `Cache-Control: max-age` takes precedence over `Expires`, and explicit lifetimes can be shorter or longer than eight hours. `Date`, `Age` and request delay reduce the remaining lifetime. Invalid/conflicting freshness is treated as stale. `no-cache` forces a fresh request before reuse, and `no-store` prevents persistence/reuse of the response. `s-maxage` applies to shared caches and does not override this private cache. Expired, corrupt or incompatible entries are refreshed with a full request; reading an entry never extends its lifetime.
 
 ## Server inspection
 
