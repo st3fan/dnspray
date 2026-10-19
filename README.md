@@ -18,9 +18,11 @@ The `find-nameservers` executable is installed in `GOBIN`, or in `$(go env GOPAT
 find-nameservers -h example.org -t 2 192.0.2.0/24 2001:db8::1
 ```
 
-`-h` defaults to `www.example.com`. The scanner sends three UDP A queries per address with at least one second between attempts by default, using batches of up to 1,024 addresses. Replies are collected concurrently on one shared socket per address family. Each responding address is printed once. Any valid matching DNS response counts, including `NXDOMAIN` or `REFUSED`.
+`-h` defaults to `www.example.com`. The scanner sends three UDP A queries per address with at least 50ms between attempts by default, using batches of up to 1,024 addresses. Replies are collected concurrently on one shared socket per address family. Each responding address is printed once. Any valid matching DNS response counts, including `NXDOMAIN` or `REFUSED`.
 
-`-rate` sets a global maximum send rate (default 100 packets/second), shared across targets, retries, and both address families. `-rate 0` disables pacing for experiments. `-retry-gap` sets the positive minimum delay between attempts to the same address (default `1s`; accepts Go durations such as `1s`). Actual delays may be longer because of pacing and batch scheduling. Delayed sends do not accumulate credit for a catch-up burst.
+The defaults are tuned for a gigabit connection: sending is unpaced (`-rate 0`), with a 50ms minimum retry gap and a 2s final listening period. For slower or lossy networks, try `-rate 100 -retry-gap 1s` and compare discovered addresses as well as runtime.
+
+`-rate` sets a global maximum send rate, shared across targets, retries, and both address families. The default `-rate 0` disables pacing. `-retry-gap` sets the positive minimum delay between attempts to the same address (default `50ms`; accepts Go durations such as `1s`). Actual delays may be longer because of pacing and batch scheduling. Delayed sends do not accumulate credit for a catch-up burst.
 
 `-t` is a positive number of seconds (default 2) to keep listening **after the final request is sent**. Listening also runs throughout sending. Total runtime includes sending, retry delays, and this final grace period. Ctrl+C stops sending and listening. The former `-c` worker-concurrency flag has been removed for this experiment.
 

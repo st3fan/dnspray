@@ -17,8 +17,8 @@ import (
 )
 
 const batchSize = 1024
-const defaultRate = 100
-const defaultRetryGap = time.Second
+const defaultRate = 0
+const defaultRetryGap = 50 * time.Millisecond
 
 // A frontier records how far sending has progressed without storing every target.
 type frontier struct {
