@@ -18,7 +18,7 @@ The `find-nameservers` executable is installed in `GOBIN`, or in `$(go env GOPAT
 find-nameservers -h example.org -t 2 192.0.2.0/24 2001:db8::1
 ```
 
-`-h` defaults to `www.example.com`. The scanner sends three UDP A queries per address with at least 50ms between attempts by default, using batches of up to 1,024 addresses. Replies are collected concurrently on one shared socket per address family. Each responding address is printed once. Any valid matching DNS response counts, including `NXDOMAIN` or `REFUSED`.
+Discovery defaults to a non-recursive root NS query (`. NS IN`, RD=0). `-h` overrides it with a non-recursive A query. The scanner sends three UDP queries per address with at least 50ms between attempts by default, using batches of up to 1,024 addresses. Replies are collected concurrently on one shared socket per address family. Each responding address is printed once. Any valid matching DNS response counts, including `NXDOMAIN` or `REFUSED`.
 
 The defaults are tuned for a gigabit connection: sending is unpaced (`-rate 0`), with a 50ms minimum retry gap and a 2s final listening period. For slower or lossy networks, try `-rate 100 -retry-gap 1s` and compare discovered addresses as well as runtime.
 
@@ -29,3 +29,5 @@ The defaults are tuned for a gigabit connection: sending is unpaced (`-rate 0`),
 Sending and retry storage are bounded; remembered discoveries grow with the number of responding addresses. Overlapping prefixes may cause additional probes, but duplicate replies produce only one output line. Send, receive, and output errors fail the scan visibly. High-speed UDP probing can lose packets, so compare discovered servers as well as elapsed time.
 
 The implementation uses [`github.com/miekg/dns`](https://github.com/miekg/dns) to construct queries, exchange DNS messages over UDP, and parse responses.
+
+`-discover-only` explicitly selects discovery without capability inspection and preserves one-IP-per-line output for scripts and benchmarks. Discovered addresses are also collected once in a typed list for subsequent inspection.

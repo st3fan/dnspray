@@ -132,10 +132,25 @@ func TestScanRetriesAndConcurrentReplies(t *testing.T) {
 			if output.String() != prefix.Addr().String()+"\n" {
 				t.Fatalf("unexpected results: %q", output.String())
 			}
+			if len(s.servers) != 1 || s.servers[0].Address != prefix.Addr() {
+				t.Fatalf("discovery list not deduplicated: %v", s.servers)
+			}
 			if len(output.times) != 1 || !output.times[0].Before(times[2]) {
 				t.Fatal("reply not processed during sending")
 			}
 		})
+	}
+}
+
+func TestDiscoveryQuestion(t *testing.T) {
+	for _, host := range []string{"", "example.com"} {
+		q, err := discoveryQuestion(host)
+		if err != nil || q.RecursionDesired {
+			t.Fatalf("discovery must not request recursion: %v %v", q, err)
+		}
+		if host == "" && (q.Question[0].Name != "." || q.Question[0].Qtype != dns.TypeNS) {
+			t.Fatalf("unexpected default discovery question: %v", q)
+		}
 	}
 }
 

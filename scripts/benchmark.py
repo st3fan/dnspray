@@ -39,7 +39,7 @@ def main():
     parser.add_argument("--retry-gap", default="50ms", help="Go duration, e.g. 500ms or 1s")
     parser.add_argument("--timeout", type=float, default=2, help="seconds to listen after final send")
     args = parser.parse_args()
-    flags = ("-rate", str(args.rate), "-retry-gap", args.retry_gap, "-t", str(args.timeout))
+    flags = ("-discover-only", "-rate", str(args.rate), "-retry-gap", args.retry_gap, "-t", str(args.timeout))
     command = ("find-nameservers", *flags, *PREFIXES)
     revision = output("git", "rev-parse", "HEAD")
     # The results file changes with every run; it does not affect the scanner.
@@ -52,7 +52,7 @@ def main():
         f"- OS/architecture: `{platform.platform()}` / `{platform.machine()}`",
         f"- CPU: {cpu_model()} ({os.cpu_count()} logical CPUs)",
         f"- Command: `{' '.join(command)}`",
-        "- Settings: hostname `www.example.com`, 3 attempts per address, batch size 1024; send rate, minimum retry gap, and final reply grace as specified in the command; "
+        "- Settings: discovery query `. NS IN` with RD=0, 3 attempts per address, batch size 1024; send rate, minimum retry gap, and final reply grace as specified in the command; "
         "512 addresses; three sequential runs; build time excluded.",
     ]
     if dirty:

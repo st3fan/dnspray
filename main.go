@@ -16,10 +16,11 @@ import (
 )
 
 func main() {
-	host := flag.String("h", "www.example.com", "hostname to query")
+	host := flag.String("h", "", "optional non-recursive A discovery query (default: root NS)")
 	timeout := flag.Float64("t", 2, "seconds to listen after the final request")
 	rate := flag.Int("rate", defaultRate, "maximum packets per second (0 disables pacing)")
 	gap := flag.Duration("retry-gap", defaultRetryGap, "minimum delay between attempts to the same address")
+	flag.Bool("discover-only", false, "only discover responding DNS addresses")
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [-h hostname] [-t seconds] [-rate packets/s] [-retry-gap duration] CIDR-or-IP [CIDR-or-IP ...]\n", os.Args[0])
 		flag.PrintDefaults()
@@ -40,7 +41,7 @@ func main() {
 		os.Exit(2)
 	}
 
-	question, err := makeQuestion(*host)
+	question, err := discoveryQuestion(*host)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
@@ -53,7 +54,7 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	if err := scan(ctx, contained, question, opts, os.Stdout); err != nil && !errors.Is(err, context.Canceled) {
+	if _, err := discover(ctx, contained, question, opts, os.Stdout); err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -103,4 +104,19 @@ func validResponse(query, response *dns.Msg) bool {
 	return response.Id == query.Id && response.Response &&
 		response.Opcode == dns.OpcodeQuery &&
 		response.Question[0] == query.Question[0]
+}
+
+// Discovery requests no recursive work; any matching DNS response is sufficient.
+func discoveryQuestion(host string) (*dns.Msg, error) {
+	if host == "" {
+		q := new(dns.Msg).SetQuestion(".", dns.TypeNS)
+		q.RecursionDesired = false
+		return q, nil
+	}
+	q, err := makeQuestion(host)
+	if err != nil {
+		return nil, err
+	}
+	q.RecursionDesired = false
+	return q, nil
 }
