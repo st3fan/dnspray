@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/netip"
 	"sort"
 	"strconv"
@@ -37,7 +38,7 @@ func canonicalASN(value string) (string, error) {
 
 // Validate every argument before making any lookups, and resolve the complete
 // scope before the caller starts discovery. Errors never return a partial scope.
-func resolveTargets(ctx context.Context, args []string, lookup asnLookup) ([]netip.Prefix, error) {
+func resolveTargets(ctx context.Context, args []string, lookup asnLookup, logger *log.Logger) ([]netip.Prefix, error) {
 	targets := make([]scanTarget, 0, len(args))
 	for _, arg := range args {
 		if len(arg) >= 2 && strings.EqualFold(arg[:2], "AS") {
@@ -56,6 +57,11 @@ func resolveTargets(ctx context.Context, args []string, lookup asnLookup) ([]net
 	}
 	var prefixes []netip.Prefix
 	expanded := make(map[string]bool)
+	type asnScope struct {
+		asn      string
+		prefixes []netip.Prefix
+	}
+	var foundScopes []asnScope
 	for _, target := range targets {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -65,6 +71,9 @@ func resolveTargets(ctx context.Context, args []string, lookup asnLookup) ([]net
 			continue
 		}
 		if expanded[target.asn] {
+			if logger != nil {
+				logger.Printf("%s: reusing resolved prefixes", target.asn)
+			}
 			continue
 		}
 		resolved, err := lookup(ctx, target.asn)
@@ -74,18 +83,37 @@ func resolveTargets(ctx context.Context, args []string, lookup asnLookup) ([]net
 		if len(resolved) == 0 {
 			return nil, fmt.Errorf("resolve %s: no originated IPv4 prefixes", target.asn)
 		}
+		normalized := make([]netip.Prefix, 0, len(resolved))
 		for _, prefix := range resolved {
 			if !prefix.IsValid() || !prefix.Addr().Is4() {
 				return nil, fmt.Errorf("resolve %s: invalid IPv4 prefix in lookup", target.asn)
 			}
-			prefixes = append(prefixes, prefix.Masked())
+			normalized = append(normalized, prefix.Masked())
 		}
+		if logger != nil {
+			for _, prefix := range normalized {
+				logger.Printf("%s: found IPv4 prefix %s", target.asn, prefix)
+			}
+		}
+		prefixes = append(prefixes, normalized...)
+		foundScopes = append(foundScopes, asnScope{target.asn, normalized})
 		expanded[target.asn] = true
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return uniquePrefixes(prefixes), nil
+	prefixes = uniquePrefixes(prefixes)
+	if logger != nil {
+		for _, scope := range foundScopes {
+			for _, prefix := range scope.prefixes {
+				index := sort.Search(len(prefixes), func(i int) bool { return prefixes[i].Addr().Compare(prefix.Addr()) > 0 }) - 1
+				if index >= 0 && prefixes[index] != prefix && prefixes[index].Bits() <= prefix.Bits() && prefixes[index].Contains(prefix.Addr()) {
+					logger.Printf("%s: prefix %s is covered by %s; no separate scan needed", scope.asn, prefix, prefixes[index])
+				}
+			}
+		}
+	}
+	return prefixes, nil
 }
 
 func uniquePrefixes(prefixes []netip.Prefix) []netip.Prefix {

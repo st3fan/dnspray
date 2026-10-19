@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -26,7 +27,7 @@ type ripeClient struct {
 	endpoint string
 	cacheDir string
 	now      func() time.Time
-	warnings io.Writer
+	logger   *log.Logger
 }
 
 type ripeCache struct {
@@ -53,8 +54,8 @@ type ripeResponse struct {
 	} `json:"data"`
 }
 
-func newRIPEClient(warnings io.Writer) *ripeClient {
-	c := &ripeClient{client: &http.Client{Timeout: ripeTimeout}, endpoint: ripeEndpoint, now: time.Now, warnings: warnings}
+func newRIPEClient(logger *log.Logger) *ripeClient {
+	c := &ripeClient{client: &http.Client{Timeout: ripeTimeout}, endpoint: ripeEndpoint, now: time.Now, logger: logger}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		c.warn("cache disabled: %v", err)
@@ -67,8 +68,8 @@ func newRIPEClient(warnings io.Writer) *ripeClient {
 }
 
 func (c *ripeClient) warn(format string, args ...any) {
-	if c.warnings != nil {
-		fmt.Fprintf(c.warnings, "RIPE cache: "+format+"\n", args...)
+	if c.logger != nil {
+		c.logger.Printf("RIPE cache: "+format, args...)
 	}
 }
 
@@ -82,6 +83,9 @@ func (c *ripeClient) prefixes(ctx context.Context, asn string) ([]netip.Prefix, 
 		return nil, err
 	}
 	if cached, ok := c.readCache(asn); ok {
+		if c.logger != nil {
+			c.logger.Printf("RIPE: cache hit for %s (%d IPv4 prefixes)", asn, len(cached))
+		}
 		return cached, nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, ripeTimeout)
@@ -101,6 +105,9 @@ func (c *ripeClient) prefixes(ctx context.Context, asn string) ([]netip.Prefix, 
 		return nil, err
 	}
 	request.Header.Set("Accept", "application/json")
+	if c.logger != nil {
+		c.logger.Printf("RIPE: fetching IPv4 origin prefixes for %s", asn)
+	}
 	started := c.now()
 	response, err := c.client.Do(request)
 	if err != nil {
@@ -121,6 +128,9 @@ func (c *ripeClient) prefixes(ctx context.Context, asn string) ([]netip.Prefix, 
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if c.logger != nil {
+		c.logger.Printf("RIPE: fetched %s (%d IPv4 prefixes)", asn, len(prefixes))
+	}
 	fetched := c.now()
 	expires, noStore := ripeFreshness(response.Header, started, fetched)
 	if noStore {
@@ -134,6 +144,8 @@ func (c *ripeClient) prefixes(ctx context.Context, asn string) ([]netip.Prefix, 
 	return prefixes, nil
 }
 
+// Preserve all validated origin prefixes for logging; the target resolver
+// removes overlaps only after every source has resolved.
 func parseRIPE(body []byte, asn string) ([]netip.Prefix, error) {
 	var response ripeResponse
 	if err := json.Unmarshal(body, &response); err != nil {
@@ -163,7 +175,7 @@ func parseRIPE(body []byte, asn string) ([]netip.Prefix, error) {
 	if len(prefixes) == 0 {
 		return nil, errors.New("RIPE returned no originated IPv4 prefixes")
 	}
-	return uniquePrefixes(prefixes), nil
+	return prefixes, nil
 }
 
 func readBounded(reader io.Reader, limit int64) ([]byte, error) {
