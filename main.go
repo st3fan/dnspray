@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"net/netip"
 	"os"
@@ -16,96 +17,128 @@ import (
 	"github.com/miekg/dns"
 )
 
+type cliServices struct {
+	lookup   func(context.Context, string, *log.Logger) ([]netip.Prefix, error)
+	discover func(context.Context, []netip.Prefix, *dns.Msg, scanOptions, io.Writer) ([]foundServer, error)
+}
+
 func main() {
-	host := flag.String("h", "", "optional non-recursive A discovery query (default: root NS)")
-	timeout := flag.Float64("t", 2, "seconds to listen after the final request")
-	rate := flag.Int("rate", defaultRate, "maximum packets per second (0 disables pacing)")
-	gap := flag.Duration("retry-gap", defaultRetryGap, "minimum delay between attempts to the same address")
-	discoverOnly := flag.Bool("discover-only", false, "only discover responding DNS addresses")
-	jsonOutput := flag.Bool("json", false, "write structured server reports as JSON")
-	checkWorkers := flag.Int("check-workers", 8, "maximum concurrent server inspections")
-	checkTimeout := flag.Duration("check-timeout", 2*time.Second, "deadline for each capability check")
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	code := runCLI(ctx, os.Args[1:], os.Stdout, os.Stderr, cliServices{})
+	stop()
+	os.Exit(code)
+}
+
+func runCLI(ctx context.Context, args []string, stdout, stderr io.Writer, services cliServices) int {
+	flags := flag.NewFlagSet("find-nameservers", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	host := flags.String("h", "", "optional non-recursive A discovery query (default: root NS)")
+	timeout := flags.Float64("t", 2, "seconds to listen after the final request")
+	rate := flags.Int("rate", defaultRate, "maximum packets per second (0 disables pacing)")
+	gap := flags.Duration("retry-gap", defaultRetryGap, "minimum delay between attempts to the same address")
+	discoverOnly := flags.Bool("discover-only", false, "only discover responding DNS addresses")
+	jsonOutput := flags.Bool("json", false, "write structured server reports as JSON")
+	checkWorkers := flags.Int("check-workers", 8, "maximum concurrent server inspections")
+	checkTimeout := flags.Duration("check-timeout", 2*time.Second, "deadline for each capability check")
 	var tests testOptions
-	tests.register(flag.CommandLine)
-	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [options] AS-number-or-CIDR-or-IP [target ...]\n", os.Args[0])
-		flag.PrintDefaults()
+	tests.register(flags)
+	silent := flags.Bool("silent", false, "suppress runtime logs; print findings only")
+	flags.Usage = func() {
+		fmt.Fprintf(flags.Output(), "Usage: %s [options] AS-number-or-CIDR-or-IP [target ...]\n", flags.Name())
+		flags.PrintDefaults()
 	}
-	flag.Parse()
+	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	logger := newRuntimeLogger(stderr, *silent)
 
 	if math.IsNaN(*timeout) || math.IsInf(*timeout, 0) || *timeout <= 0 || *timeout >= float64(math.MaxInt64)/float64(time.Second) || time.Duration(*timeout*float64(time.Second)) <= 0 {
-		fmt.Fprintln(os.Stderr, "-t must be a positive, representable number of seconds")
-		os.Exit(2)
+		logger.Println("-t must be a positive, representable number of seconds")
+		return 2
 	}
 	opts := scanOptions{timeout: time.Duration(*timeout * float64(time.Second)), rate: *rate, retryGap: *gap}
 	if err := opts.validate(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(2)
+		logger.Println(err)
+		return 2
 	}
-	if flag.NArg() == 0 {
-		flag.Usage()
-		os.Exit(2)
+	if flags.NArg() == 0 {
+		flags.Usage()
+		return 2
 	}
 
 	inspection := inspectionOptions{workers: *checkWorkers, timeout: *checkTimeout, port: 53}
 	if err := inspection.validate(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(2)
+		logger.Println(err)
+		return 2
 	}
 	if *discoverOnly && *jsonOutput {
-		fmt.Fprintln(os.Stderr, "-json cannot be combined with -discover-only")
-		os.Exit(2)
+		logger.Println("-json cannot be combined with -discover-only")
+		return 2
 	}
 	if err := tests.validate(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(2)
+		logger.Println(err)
+		return 2
 	}
 	checks := tests.checks()
 	if *discoverOnly && len(checks) > 0 {
-		fmt.Fprintln(os.Stderr, "-discover-only cannot be combined with -test-* options")
-		os.Exit(2)
+		logger.Println("-discover-only cannot be combined with -test-* options")
+		return 2
 	}
 	onlyAddresses := *discoverOnly || (len(checks) == 0 && !*jsonOutput)
 	question, err := discoveryQuestion(*host)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(2)
+		logger.Println(err)
+		return 2
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-	var ripe *ripeClient
-	contained, err := resolveTargets(ctx, flag.Args(), func(ctx context.Context, asn string) ([]netip.Prefix, error) {
-		if ripe == nil {
-			ripe = newRIPEClient(os.Stderr)
+	if services.lookup == nil {
+		var ripe *ripeClient
+		services.lookup = func(ctx context.Context, asn string, logger *log.Logger) ([]netip.Prefix, error) {
+			if ripe == nil {
+				ripe = newRIPEClient(logger)
+			}
+			return ripe.prefixes(ctx, asn)
 		}
-		return ripe.prefixes(ctx, asn)
-	})
+	}
+	contained, err := resolveTargets(ctx, flags.Args(), func(ctx context.Context, asn string) ([]netip.Prefix, error) {
+		return services.lookup(ctx, asn, logger)
+	}, logger)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
-			return
+			return 0
 		}
-		fmt.Fprintln(os.Stderr, err)
+		logger.Println(err)
 		if errors.Is(err, errTargetSyntax) {
-			os.Exit(2)
+			return 2
 		}
-		os.Exit(1)
+		return 1
 	}
+	if ctx.Err() != nil {
+		return 0
+	}
+	logScanScope(logger, contained)
 	output := io.Writer(io.Discard)
 	if onlyAddresses {
-		output = os.Stdout
+		output = stdout
 	}
-	found, err := discover(ctx, contained, question, opts, output)
+	if services.discover == nil {
+		services.discover = discover
+	}
+	found, err := services.discover(ctx, contained, question, opts, output)
 	if err == nil && !onlyAddresses {
 		var reports []serverReport
 		reports, err = inspectServers(ctx, found, checks, inspection)
 		if err == nil {
-			err = writeReports(os.Stdout, reports, *jsonOutput)
+			err = writeReports(stdout, reports, *jsonOutput)
 		}
 	}
 	if err != nil && !errors.Is(err, context.Canceled) {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		logger.Println(err)
+		return 1
 	}
+	return 0
 }
 
 func parsePrefixes(args []string) ([]netip.Prefix, error) {

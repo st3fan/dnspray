@@ -32,6 +32,19 @@ The implementation uses [`github.com/miekg/dns`](https://github.com/miekg/dns) t
 
 `-discover-only` explicitly selects discovery without capability inspection and preserves one-IP-per-line output for scripts and benchmarks. Discovered addresses are also collected once in a typed list for subsequent inspection.
 
+## Runtime logging
+
+Progress and operational diagnostics use Go's `log` package on stderr with timestamps. Stdout contains only findings: IP addresses, human-readable inspection reports, or JSON. Redirect them independently:
+
+```sh
+find-nameservers -json AS64496 > findings.json 2> scan.log
+find-nameservers -silent -json AS64496 > findings.json
+```
+
+Logs distinguish RIPE HTTP fetches from cache hits and reused ASN resolutions. They list every validated IPv4 origin prefix found for each ASN, identify prefixes covered by a broader final prefix, and list the prefixes actually used. Once the complete scope is resolved, the scan-start summary reports exact unique-address and prefix counts for IPv4 and IPv6. No scan-start summary is printed after a resolution failure.
+
+`-silent` suppresses runtime logs, including cache warnings and operational errors, without changing findings or exit statuses. Failed commands still return nonzero; explicit help/usage and command-line parsing diagnostics retain their normal behavior. Runtime logs contain the target scope, so keep them private alongside lookup data and benchmark records.
+
 ## ASN targets and RIPE cache
 
 Use `AS` followed by a decimal autonomous system number as a positional target. ASN targets can be mixed with IP addresses, CIDRs and other ASNs; lowercase `as` and leading zeros are normalized. These examples use documentation-only ASNs and prefixes:
@@ -43,9 +56,9 @@ find-nameservers -test-version -json AS64496 AS64497 192.0.2.0/24
 
 ASN expansion uses [RIPEstat RIS Prefixes](https://stat.ripe.net/docs/data-api/api-endpoints/ris-prefixes.html) with `types=o`, `af=v4` and `list_prefixes=true`. Only originated IPv4 prefixes are included, not transited routes or a historical union of announcements. RIS supplies its latest available routing snapshot, which may lag current routing and is not a complete inventory. Explicit IPv6 IP/CIDR targets remain supported; ASN-derived IPv6 prefixes are excluded.
 
-All target syntax is validated and all ASN lookups finish before DNS discovery starts. An unsuccessful/malformed API response, mismatched ASN, invalid prefix or missing IPv4 scope fails the command before scanning; a stale cache is never silently substituted after an API failure. IP/CIDR-only commands do not access RIPE. Requests have a 15s deadline and an 8MiB response-body limit; Ctrl+C also cancels lookup requests. Existing discovery and capability-check settings apply to the expanded scope.
+All target syntax is validated and all ASN lookups finish before DNS discovery starts. An unsuccessful/malformed API response, mismatched ASN, invalid prefix or missing IPv4 origin-prefix array fails the command before scanning; a stale cache is never silently substituted after an API failure. A successful empty IPv4 origin-prefix array is cached and the ASN is logged as skipped; other targets are still scanned. If no scannable targets remain, the command exits with an error before discovery. IP/CIDR-only commands do not access RIPE. Requests have a 15s deadline and an 8MiB response-body limit; Ctrl+C also cancels lookup requests. Existing discovery and capability-check settings apply to the expanded scope.
 
-Each canonical ASN is cached at `~/.cache/find-nameservers/ripe/AS<number>.json`, with the validated API response and freshness metadata in the same JSON file. The cache uses the home directory path shown here, independently of `XDG_CACHE_HOME`. Entries are replaced atomically with owner-only directory/file permissions. A cache I/O failure is reported on stderr; a valid API response can still be scanned if writing the cache fails.
+Each canonical ASN is cached at `~/.cache/find-nameservers/ripe/AS<number>.json`, with the validated API response and freshness metadata in the same JSON file. The cache uses the home directory path shown here, independently of `XDG_CACHE_HOME`. Entries are replaced atomically with owner-only directory/file permissions. A cache I/O failure is logged on stderr unless `-silent` is set; a valid API response can still be scanned if writing the cache fails.
 
 Freshness defaults to eight hours when the API supplies no freshness lifetime. `Cache-Control: max-age` takes precedence over `Expires`, and explicit lifetimes can be shorter or longer than eight hours. `Date`, `Age` and request delay reduce the remaining lifetime. Invalid/conflicting freshness is treated as stale. `no-cache` forces a fresh request before reuse, and `no-store` prevents persistence/reuse of the response. `s-maxage` applies to shared caches and does not override this private cache. Expired, corrupt or incompatible entries are refreshed with a full request; reading an entry never extends its lifetime.
 

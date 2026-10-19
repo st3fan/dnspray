@@ -41,7 +41,7 @@ func TestResolveMixedTargets(t *testing.T) {
 			return []netip.Prefix{netip.MustParsePrefix("198.51.100.0/24")}, nil
 		}
 	}
-	prefixes, err := resolveTargets(context.Background(), []string{"AS64496", "192.0.2.3", "as00064496", "2001:db8::1", "192.0.2.129/25", "AS64497", "2001:db8::/32", "198.51.100.1/24"}, lookup)
+	prefixes, err := resolveTargets(context.Background(), []string{"AS64496", "192.0.2.3", "as00064496", "2001:db8::1", "192.0.2.129/25", "AS64497", "2001:db8::/32", "198.51.100.1/24"}, lookup, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,27 +54,27 @@ func TestResolveMixedTargets(t *testing.T) {
 func TestResolveTargetsBeforeScanning(t *testing.T) {
 	calls := 0
 	lookup := func(context.Context, string) ([]netip.Prefix, error) { calls++; return nil, errors.New("API failed") }
-	prefixes, err := resolveTargets(context.Background(), []string{"AS64496", "not-an-ip"}, lookup)
+	prefixes, err := resolveTargets(context.Background(), []string{"AS64496", "not-an-ip"}, lookup, nil)
 	if !errors.Is(err, errTargetSyntax) || prefixes != nil || calls != 0 {
 		t.Fatal("invalid syntax caused lookup", prefixes, calls, err)
 	}
-	prefixes, err = resolveTargets(context.Background(), []string{"192.0.2.1", "AS64496"}, lookup)
+	prefixes, err = resolveTargets(context.Background(), []string{"192.0.2.1", "AS64496"}, lookup, nil)
 	if err == nil || prefixes != nil || calls != 1 {
 		t.Fatal("returned partial scope", prefixes, calls, err)
 	}
-	prefixes, err = resolveTargets(context.Background(), []string{"192.0.2.1", "2001:db8::1"}, nil)
+	prefixes, err = resolveTargets(context.Background(), []string{"192.0.2.1", "2001:db8::1"}, nil, nil)
 	if err != nil || len(prefixes) != 2 {
 		t.Fatal("IP-only scan needed API", prefixes, err)
 	}
-	for _, resolved := range [][]netip.Prefix{nil, {{}}, {netip.MustParsePrefix("2001:db8::/32")}} {
-		prefixes, err = resolveTargets(context.Background(), []string{"192.0.2.1", "AS64496"}, func(context.Context, string) ([]netip.Prefix, error) { return resolved, nil })
+	for _, resolved := range [][]netip.Prefix{{{}}, {netip.MustParsePrefix("2001:db8::/32")}} {
+		prefixes, err = resolveTargets(context.Background(), []string{"192.0.2.1", "AS64496"}, func(context.Context, string) ([]netip.Prefix, error) { return resolved, nil }, nil)
 		if err == nil || prefixes != nil {
 			t.Fatal("returned incomplete/invalid ASN scope", prefixes, err)
 		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := resolveTargets(ctx, []string{"AS64496"}, lookup); !errors.Is(err, context.Canceled) {
+	if _, err := resolveTargets(ctx, []string{"AS64496"}, lookup, nil); !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
 }

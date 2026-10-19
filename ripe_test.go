@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -22,6 +23,9 @@ import (
 var ripeTestTime = time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 
 func ripeFixtureBody(asn string, prefixes ...string) []byte {
+	if prefixes == nil {
+		prefixes = []string{}
+	}
 	body := map[string]any{"status": "ok", "status_code": 200, "data_call_name": "ris-prefixes", "data": map[string]any{
 		"resource": strings.TrimPrefix(asn, "AS"), "list_prefixes": true, "prefixes": map[string]any{
 			"v4": map[string]any{"originating": prefixes, "transiting": []string{"203.0.113.0/24"}},
@@ -36,7 +40,7 @@ func ripeFixture(t *testing.T, handler http.HandlerFunc) *ripeClient {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Header()["Date"] = nil; handler(w, r) }))
 	t.Cleanup(server.Close)
-	return &ripeClient{client: server.Client(), endpoint: server.URL + "/data/ris-prefixes/data.json", cacheDir: t.TempDir(), now: func() time.Time { return ripeTestTime }, warnings: io.Discard}
+	return &ripeClient{client: server.Client(), endpoint: server.URL + "/data/ris-prefixes/data.json", cacheDir: t.TempDir(), now: func() time.Time { return ripeTestTime }, logger: log.New(io.Discard, "", 0)}
 }
 
 func TestRIPERequestAndCache(t *testing.T) {
@@ -53,7 +57,7 @@ func TestRIPERequestAndCache(t *testing.T) {
 	c.now = func() time.Time { return now }
 	for i := 0; i < 2; i++ {
 		prefixes, err := c.prefixes(context.Background(), "as00064496")
-		if err != nil || !reflect.DeepEqual(prefixStrings(prefixes), []string{"192.0.2.0/24"}) {
+		if err != nil || !reflect.DeepEqual(prefixStrings(prefixes), []string{"192.0.2.0/24", "192.0.2.128/25"}) {
 			t.Fatal(prefixes, err)
 		}
 		now = now.Add(7 * time.Hour)
@@ -121,7 +125,7 @@ func TestRIPECachePolicies(t *testing.T) {
 }
 
 func TestRIPEDataValidation(t *testing.T) {
-	for _, mode := range []string{"wrong ASN", "wrong endpoint", "API error", "HTTP error", "invalid JSON", "invalid prefix", "no v4", "only transiting", "missing list", "missing status", "trailing JSON"} {
+	for _, mode := range []string{"wrong ASN", "wrong endpoint", "API error", "HTTP error", "invalid JSON", "invalid prefix", "null origin", "missing origin", "malformed origin", "missing list", "missing status", "trailing JSON"} {
 		t.Run(mode, func(t *testing.T) {
 			c := ripeFixture(t, func(w http.ResponseWriter, r *http.Request) {
 				body := ripeFixtureBody("AS64496", "192.0.2.0/24")
@@ -139,10 +143,12 @@ func TestRIPEDataValidation(t *testing.T) {
 					body = []byte(`{`)
 				case "invalid prefix":
 					body = ripeFixtureBody("AS64496", "not-a-prefix")
-				case "no v4":
-					body = ripeFixtureBody("AS64496", "2001:db8::/32")
-				case "only transiting":
-					body = ripeFixtureBody("AS64496")
+				case "null origin":
+					body = bytes.Replace(body, []byte(`"originating":["192.0.2.0/24"]`), []byte(`"originating":null`), 1)
+				case "missing origin":
+					body = bytes.Replace(body, []byte(`"originating":["192.0.2.0/24"],`), nil, 1)
+				case "malformed origin":
+					body = bytes.Replace(body, []byte(`"originating":["192.0.2.0/24"]`), []byte(`"originating":{}`), 1)
 				case "missing list":
 					body = bytes.Replace(body, []byte(`"list_prefixes":true`), []byte(`"list_prefixes":false`), 1)
 				case "missing status":
@@ -235,7 +241,7 @@ func TestRIPEBodyLimitAndCacheIOFailure(t *testing.T) {
 		os.WriteFile(path, []byte("file"), 0600)
 		c.cacheDir = filepath.Join(path, "ripe")
 		var warnings bytes.Buffer
-		c.warnings = &warnings
+		c.logger = log.New(&warnings, "", 0)
 		prefixes, err := c.prefixes(context.Background(), "AS64496")
 		if err != nil || len(prefixes) != 1 || !strings.Contains(warnings.String(), "could not save") {
 			t.Fatal(prefixes, err, warnings.String())
@@ -279,7 +285,7 @@ func TestRIPECancellationAndTimeout(t *testing.T) {
 }
 
 func TestRIPEAtomicCacheWrites(t *testing.T) {
-	c := &ripeClient{cacheDir: t.TempDir(), now: func() time.Time { return ripeTestTime }, warnings: io.Discard}
+	c := &ripeClient{cacheDir: t.TempDir(), now: func() time.Time { return ripeTestTime }, logger: log.New(io.Discard, "", 0)}
 	entry := ripeCache{Version: ripeCacheVersion, ASN: "AS64496", FetchedAt: ripeTestTime, ExpiresAt: ripeTestTime.Add(defaultRIPELifetime), Response: ripeFixtureBody("AS64496", "192.0.2.0/24")}
 	var wg sync.WaitGroup
 	for range 4 {
@@ -308,7 +314,7 @@ func TestRIPECacheLocation(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(t.TempDir(), "other"))
-	c := newRIPEClient(io.Discard)
+	c := newRIPEClient(log.New(io.Discard, "", 0))
 	if c.cacheDir != filepath.Join(home, ".cache", "find-nameservers", "ripe") {
 		t.Fatal(c.cacheDir)
 	}
@@ -363,7 +369,7 @@ func TestRIPECacheWithoutAbsoluteHome(t *testing.T) {
 		t.Run(home, func(t *testing.T) {
 			t.Setenv("HOME", home)
 			var warnings bytes.Buffer
-			c := newRIPEClient(&warnings)
+			c := newRIPEClient(log.New(&warnings, "", 0))
 			if c.cacheDir != "" || !strings.Contains(warnings.String(), "cache disabled") {
 				t.Fatal(c.cacheDir, warnings.String())
 			}
@@ -372,7 +378,7 @@ func TestRIPECacheWithoutAbsoluteHome(t *testing.T) {
 }
 
 func TestRIPECacheReadAndBodyBounds(t *testing.T) {
-	c := &ripeClient{cacheDir: t.TempDir(), now: func() time.Time { return ripeTestTime }, warnings: io.Discard}
+	c := &ripeClient{cacheDir: t.TempDir(), now: func() time.Time { return ripeTestTime }, logger: log.New(io.Discard, "", 0)}
 	path := filepath.Join(c.cacheDir, "AS64496.json")
 	if err := os.WriteFile(path, bytes.Repeat([]byte(" "), maxRIPECache+1), 0600); err != nil {
 		t.Fatal(err)
@@ -388,3 +394,38 @@ func TestRIPECacheReadAndBodyBounds(t *testing.T) {
 type failingReader struct{}
 
 func (failingReader) Read([]byte) (int, error) { return 0, io.ErrUnexpectedEOF }
+
+func TestRIPEEmptyCacheFreshness(t *testing.T) {
+	for _, policy := range []string{"", "max-age=60", "no-store"} {
+		t.Run(policy, func(t *testing.T) {
+			var calls atomic.Int32
+			c := ripeFixture(t, func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				if policy != "" {
+					w.Header().Set("Cache-Control", policy)
+				}
+				w.Write(ripeFixtureBody("AS64496"))
+			})
+			for range 2 {
+				prefixes, err := c.prefixes(context.Background(), "AS64496")
+				if err != nil || len(prefixes) != 0 {
+					t.Fatal(prefixes, err)
+				}
+			}
+			want := int32(1)
+			if policy == "no-store" {
+				want = 2
+			}
+			if calls.Load() != want {
+				t.Fatal("empty cache not reused correctly", calls.Load())
+			}
+			c.now = func() time.Time { return ripeTestTime.Add(9 * time.Hour) }
+			if _, err := c.prefixes(context.Background(), "AS64496"); err != nil {
+				t.Fatal(err)
+			}
+			if calls.Load() != want+1 {
+				t.Fatal("expired empty cache reused")
+			}
+		})
+	}
+}
