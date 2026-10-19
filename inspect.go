@@ -20,22 +20,30 @@ type serverCheck interface {
 	Run(context.Context, netip.AddrPort) checkResult
 }
 
+type extendedDNSError struct {
+	Code uint16 `json:"code"`
+	Text string `json:"text,omitempty"`
+}
+
 type observation struct {
-	Probe            string   `json:"probe,omitempty"`
-	ResponseReceived *bool    `json:"response_received,omitempty"`
-	Error            string   `json:"error,omitempty"`
-	ErrorStatus      string   `json:"error_status,omitempty"`
-	Truncated        bool     `json:"tc"`
-	UDPTruncated     bool     `json:"udp_truncated,omitempty"`
-	Answer           []string `json:"answer,omitempty"`
-	Authority        []string `json:"authority,omitempty"`
-	EvidenceLimited  bool     `json:"evidence_limited,omitempty"`
-	Recursive        bool     `json:"rd"`
-	Available        bool     `json:"ra"`
-	Authoritative    bool     `json:"aa"`
-	Rcode            string   `json:"rcode"`
-	AnswerCount      int      `json:"answer_count"`
-	AuthorityCount   int      `json:"authority_count"`
+	Authenticated    *bool              `json:"ad,omitempty"`
+	CheckingDisabled *bool              `json:"cd,omitempty"`
+	ExtendedErrors   []extendedDNSError `json:"extended_errors,omitempty"`
+	Probe            string             `json:"probe,omitempty"`
+	ResponseReceived *bool              `json:"response_received,omitempty"`
+	Error            string             `json:"error,omitempty"`
+	ErrorStatus      string             `json:"error_status,omitempty"`
+	Truncated        bool               `json:"tc"`
+	UDPTruncated     bool               `json:"udp_truncated,omitempty"`
+	Answer           []string           `json:"answer,omitempty"`
+	Authority        []string           `json:"authority,omitempty"`
+	EvidenceLimited  bool               `json:"evidence_limited,omitempty"`
+	Recursive        bool               `json:"rd"`
+	Available        bool               `json:"ra"`
+	Authoritative    bool               `json:"aa"`
+	Rcode            string             `json:"rcode"`
+	AnswerCount      int                `json:"answer_count"`
+	AuthorityCount   int                `json:"authority_count"`
 }
 
 type checkResult struct {
@@ -244,6 +252,11 @@ func writeReports(output io.Writer, reports []serverReport, jsonOutput bool) err
 			}
 			if _, err := fmt.Fprintln(output); err != nil {
 				return err
+			}
+			if result.Check == "dnssec" {
+				if err := writeDNSSECEvidence(output, result); err != nil {
+					return err
+				}
 			}
 			if result.Check == "recursion" {
 				if err := writeRecursionEvidence(output, result); err != nil {

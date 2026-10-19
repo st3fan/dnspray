@@ -112,3 +112,13 @@ AXFR uses TCP and shares the `-check-timeout` per-check deadline. A transfer cou
 ### TCP
 
 `-test-tcp` sends a non-recursive root NS query directly over TCP. Any matching, complete DNS response establishes TCP support (`observed`), including REFUSED or SERVFAIL; JSON retains the RCODE separately. Connection errors, malformed/mismatched responses and timeouts retain separate outcomes and do not prove TCP is unsupported. The check shares the inspection deadline and cancellation controls.
+
+### DNSSEC validation
+
+`-test-dnssec` probes recursive validation using three A queries: a valid signed name with CD=0, a known bogus signed name with CD=0, and the bogus name with CD=1. All request recursion and DNSSEC records (DO=1). The check divides its remaining deadline among the remaining probes, so a slow probe leaves time for the controls.
+
+Defaults are `good-a.test.dnssec-tools.org.` and `badsign-a.test.dnssec-tools.org.`, documented by the [DNSSEC-Tools test zone](https://dnssec-tools.org/testzone/). Override them with `-dnssec-valid-name name` and `-dnssec-bogus-name name` for controlled test records. These settings select names only; `-test-dnssec` enables the check.
+
+An `observed` result requires an authenticated positive valid-name answer (AD=1), bogus-name SERVFAIL, and an unauthenticated positive bogus answer with checking disabled. Responses must advertise recursion and be non-authoritative. A successful unauthenticated bogus answer with checking enabled produces `not-observed` only when the other controls succeed. SERVFAIL alone, missing AD, unavailable controls, refusal and timeouts cannot establish validation. Unexpected RD/CD flags prevent a comparison. JSON retains probe flags, bounded answer/authority evidence, errors and [Extended DNS Errors](https://www.rfc-editor.org/rfc/rfc8914.html); text reports include flags and EDEs.
+
+This is a behavioral comparison from the scanner's address, not a cryptographic audit or proof of public recursion. Cached, synthesized or policy-filtered responses and changes to public test records can affect results. Maintain known valid/bogus records and use a longer `-check-timeout` when needed.
